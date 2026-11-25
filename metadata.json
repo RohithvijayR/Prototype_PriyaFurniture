@@ -1,0 +1,6 @@
+{
+  "name": "Priya Furniture",
+  "description": "B2B furniture manufacturer crafting architectural workstations, healthcare suites, educational furnishings, and institutional seating.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
