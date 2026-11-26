@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Priya Furniture</title>
+    <script>
+      // GitHub Pages SPA fallback: preserves the repository subpath (/Prototype_PriyaFurniture),
+      // nested client-side routes, query strings, and URL hashes using location.replace so
+      // browser Back/Forward history remains intact.
+      (function () {
+        var l = window.location;
+        if (l.search && l.search.indexOf('?/') === 0) {
+          return;
+        }
+        var repoPrefix = '/Prototype_PriyaFurniture';
+        var pathSegmentsToKeep = l.pathname.indexOf(repoPrefix) === 0 ? 1 : 0;
+        var basePath = l.pathname
+          .split('/')
+          .slice(0, 1 + pathSegmentsToKeep)
+          .join('/');
+        var routePath = l.pathname
+          .slice(1)
+          .split('/')
+          .slice(pathSegmentsToKeep)
+          .join('/')
+          .replace(/&/g, '~and~');
+        var query = l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '';
+        l.replace(
+          l.protocol +
+            '//' +
+            l.hostname +
+            (l.port ? ':' + l.port : '') +
+            basePath +
+            '/?/' +
+            routePath +
+            query +
+            l.hash
+        );
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

@@ -21,6 +21,27 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..600;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400..600;1,400&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Restore client-side route redirected by public/404.html on GitHub Pages
+      // before React Router mounts, preserving browser Back/Forward history.
+      (function (l) {
+        if (l.search && l.search[1] === '/') {
+          var decoded = l.search
+            .slice(1)
+            .split('&')
+            .map(function (segment) {
+              return segment.replace(/~and~/g, '&');
+            });
+          var basePath = l.pathname.endsWith('/') ? l.pathname.slice(0, -1) : l.pathname;
+          var restoredUrl =
+            basePath +
+            decoded[0] +
+            (decoded.length > 1 ? '?' + decoded.slice(1).join('&') : '') +
+            l.hash;
+          window.history.replaceState(null, '', restoredUrl);
+        }
+      })(window.location);
+    </script>
   </head>
   <body class="bg-[#FFFFFF] text-[#202735] antialiased selection:bg-[#D9CBB8] selection:text-[#202735]">
     <div id="root"></div>

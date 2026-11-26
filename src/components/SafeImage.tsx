@@ -21,23 +21,49 @@ export function SafeImage({
   const imgRef = useRef<HTMLImageElement>(null);
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     setHasError(false);
+    setRetryCount(0);
 
     const img = imgRef.current;
-    if (img && img.complete) {
-      if (img.naturalWidth > 0) {
-        setIsLoaded(true);
-      } else {
-        setIsLoaded(false);
-        setHasError(true);
-      }
+    // Only treat an image as already loaded when naturalWidth > 0.
+    // Never mark hasError here for img.complete && naturalWidth === 0, because
+    // off-screen loading="lazy" images report complete=true, naturalWidth=0
+    // before the browser begins fetching them.
+    if (img && img.complete && img.naturalWidth > 0) {
+      setIsLoaded(true);
       return;
     }
 
     setIsLoaded(false);
   }, [src]);
+
+  // Re-check cached completion if recovering from a previous error state on a new src.
+  useEffect(() => {
+    if (hasError || isLoaded) return;
+    const img = imgRef.current;
+    if (img && img.complete && img.naturalWidth > 0) {
+      setIsLoaded(true);
+    }
+  }, [hasError, isLoaded, retryCount, src]);
+
+  const handleLoad = () => {
+    setHasError(false);
+    setIsLoaded(true);
+  };
+
+  const handleError = () => {
+    // Allow one clean retry for transient CDN/network hiccups under concurrent loads
+    // before falling back to the placeholder preview card.
+    if (retryCount < 1 && src) {
+      setRetryCount((prev) => prev + 1);
+      return;
+    }
+    setIsLoaded(false);
+    setHasError(true);
+  };
 
   if (!src || hasError) {
     return (
@@ -64,13 +90,15 @@ export function SafeImage({
         />
       )}
       <img
+        key={`${src}-${retryCount}`}
         ref={imgRef}
         src={src}
         alt={alt}
         loading={loading}
+        decoding="async"
         referrerPolicy="no-referrer"
-        onLoad={() => setIsLoaded(true)}
-        onError={() => setHasError(true)}
+        onLoad={handleLoad}
+        onError={handleError}
         className={`${className} transition-opacity duration-500 ease-out ${
           isLoaded ? 'opacity-100' : 'opacity-0'
         }`}
