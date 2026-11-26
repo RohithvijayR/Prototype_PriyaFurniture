@@ -10,7 +10,11 @@ import {
   Minus,
   Plus,
 } from 'lucide-react';
-import { getProductBySlug, getRelatedProducts } from '../data/catalogue';
+import {
+  formatIndicativeRate,
+  getProductBySlug,
+  getRelatedProducts,
+} from '../data/catalogue';
 import { SafeImage } from '../components/SafeImage';
 import { ProductCard } from '../components/ProductCard';
 import { EDITORIAL_EASE, Reveal } from '../components/MotionPrimitives';
@@ -330,9 +334,24 @@ export function ProductDetailPage() {
 
                 {/* Quotation Notice & Primary CTA */}
                 <div className="rounded-2xl bg-[#F5F0E8] border border-[#D9CBB8]/80 p-6 space-y-4">
-                  <div className="flex items-center justify-between text-xs text-[#586070]">
-                    <span>Pricing</span>
-                    <span className="font-medium text-[#202735]">{product.pricingLabel}</span>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="text-xs text-[#586070]">
+                      {typeof product.baseReferenceRate === 'number'
+                        ? 'Indicative Base Rate'
+                        : 'Pricing'}
+                    </span>
+                    {typeof product.baseReferenceRate === 'number' ? (
+                      <div className="text-right">
+                        <span className="text-xs text-[#586070] mr-1.5">Starting from</span>
+                        <span className="font-mono text-lg font-medium tabular-nums text-[#202735]">
+                          {formatIndicativeRate(product.baseReferenceRate)}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs font-medium text-[#202735]">
+                        {product.pricingLabel}
+                      </span>
+                    )}
                   </div>
 
                   <Link
@@ -350,8 +369,9 @@ export function ProductDetailPage() {
                   </Link>
 
                   <p className="text-xs text-[#586070] leading-relaxed">
-                    Your selected model code, quantity, and colour preference will pre-fill in
-                    our multi-item quotation form.
+                    {typeof product.baseReferenceRate === 'number'
+                      ? 'Starting rate is indicative only. Final quotation pricing depends on customisation, upholstery, quantity, accessories, and delivery.'
+                      : 'Your selected model code, quantity, and colour preference will pre-fill in our multi-item quotation form.'}
                   </p>
                 </div>
               </div>
@@ -423,8 +443,17 @@ export function ProductDetailPage() {
                   )}
                   <div className="py-3.5 grid grid-cols-3 gap-2">
                     <dt className="text-xs font-medium text-[#586070]">Pricing</dt>
-                    <dd className="col-span-2 text-sm font-medium text-[#9B4D17]">
-                      {product.pricingLabel}
+                    <dd className="col-span-2 text-sm text-[#202735]">
+                      {typeof product.baseReferenceRate === 'number' ? (
+                        <>
+                          <span className="font-mono font-medium tabular-nums text-[#202735]">
+                            Starting from {formatIndicativeRate(product.baseReferenceRate)}
+                          </span>
+                          <span className="text-xs text-[#586070]"> · Final rate via quotation</span>
+                        </>
+                      ) : (
+                        <span className="font-medium text-[#9B4D17]">{product.pricingLabel}</span>
+                      )}
                     </dd>
                   </div>
                 </dl>

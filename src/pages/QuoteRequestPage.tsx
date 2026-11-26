@@ -399,9 +399,9 @@ export function QuoteRequestPage() {
             Request a Project Quotation
           </h1>
           <p className="text-base text-[#586070] leading-relaxed max-w-2xl">
-            Select official catalogue models (PF 001 – PF 024) or specify custom furniture
-            requirements. You can include multiple product items, colour preferences, and
-            delivery details in one inquiry.
+            Select from {PRODUCTS.length} models across our {CATEGORIES.length} published
+            collections—or specify custom furniture requirements. You can include multiple
+            product items, colour preferences, and delivery details in one inquiry.
           </p>
         </div>
       </section>
@@ -534,7 +534,7 @@ export function QuoteRequestPage() {
                       value={form.email}
                       onChange={(e) => updateField('email', e.target.value)}
                       aria-invalid={Boolean(errors.email)}
-                      placeholder="name@business.example"
+                      placeholder="Enter your business email"
                       className={`w-full px-4 py-3 text-sm rounded-xl bg-white border text-[#202735] placeholder:text-[#586070]/60 transition-colors ${
                         errors.email
                           ? 'border-[#9B4D17]'
@@ -811,8 +811,9 @@ export function QuoteRequestPage() {
                       01.
                     </span>
                     <span>
-                      Select your preferred Priya Furniture model codes (such as PF 001 – PF 024)
-                      or describe custom items.
+                      Select from {PRODUCTS.length} models across our {CATEGORIES.length} published
+                      collections—each organised under its category PF code—or describe custom
+                      items.
                     </span>
                   </li>
                   <li className="flex items-start gap-3">
@@ -848,18 +849,23 @@ export function QuoteRequestPage() {
                   <div>
                     <dt className="text-[#D9CBB8]/75 mb-0.5">Catalogue Sales Mobile</dt>
                     <dd className="font-mono text-white tabular-nums">
-                      {CATALOGUE_CONTACT.mobile}
+                      <a
+                        href={CATALOGUE_CONTACT.mobileHref}
+                        className="hover:text-[#D9CBB8] transition-colors"
+                      >
+                        {CATALOGUE_CONTACT.mobile}
+                      </a>
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-[#D9CBB8]/75 mb-0.5">Email</dt>
-                    <dd className="font-mono text-white">
-                      {CATALOGUE_CONTACT.emailPlaceholder}
+                    <dt className="text-[#D9CBB8]/75 mb-0.5">Published Catalogue Scope</dt>
+                    <dd className="text-[#F5F0E8] tabular-nums">
+                      {PRODUCTS.length} models across {CATEGORIES.length} collections
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-[#D9CBB8]/75 mb-0.5">Facility Address</dt>
-                    <dd className="text-[#F5F0E8]">{CATALOGUE_CONTACT.addressLine1}</dd>
+                    <dt className="text-[#D9CBB8]/75 mb-0.5">Quotation Support</dt>
+                    <dd className="text-[#F5F0E8]">{CATALOGUE_CONTACT.quotationNote}</dd>
                   </div>
                 </dl>
               </div>

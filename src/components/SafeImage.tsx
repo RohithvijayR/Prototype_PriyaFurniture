@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Armchair } from 'lucide-react';
 
 interface SafeImageProps {
@@ -18,11 +18,24 @@ export function SafeImage({
   fallbackTitle,
   loading = 'lazy',
 }: SafeImageProps) {
+  const imgRef = useRef<HTMLImageElement>(null);
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     setHasError(false);
+
+    const img = imgRef.current;
+    if (img && img.complete) {
+      if (img.naturalWidth > 0) {
+        setIsLoaded(true);
+      } else {
+        setIsLoaded(false);
+        setHasError(true);
+      }
+      return;
+    }
+
     setIsLoaded(false);
   }, [src]);
 
@@ -51,6 +64,7 @@ export function SafeImage({
         />
       )}
       <img
+        ref={imgRef}
         src={src}
         alt={alt}
         loading={loading}

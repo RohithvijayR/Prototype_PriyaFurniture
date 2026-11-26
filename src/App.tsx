@@ -10,6 +10,7 @@ import { HomePage } from './pages/HomePage';
 import { CataloguePage } from './pages/CataloguePage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { QuoteRequestPage } from './pages/QuoteRequestPage';
+import { getRouterBasename } from './utils/assetPath';
 
 function AnimatedRoutes() {
   const location = useLocation();
@@ -57,13 +58,14 @@ function AnimatedRoutes() {
 
 export default function App() {
   const [showPreloader, setShowPreloader] = useState(true);
+  const basename = getRouterBasename();
 
   const handleLoadingComplete = useCallback(() => {
     setShowPreloader(false);
   }, []);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <LoadingScreen visible={showPreloader} onComplete={handleLoadingComplete} />
       <ScrollToTop />
       <div className="min-h-screen flex flex-col bg-white text-[#202735]">

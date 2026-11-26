@@ -3,20 +3,21 @@ import { PEDICURE_MANICURE_PRODUCTS } from './catalogues/pedicureManicure';
 import { BARBER_CHAIR_PRODUCTS } from './catalogues/barberChairs';
 import { HAIRWASH_STATION_PRODUCTS } from './catalogues/hairwashStations';
 import { FACIAL_BED_PRODUCTS } from './catalogues/facialBeds';
+import { resolvePublicAsset } from '../utils/assetPath';
+import heroEditorialImg from '../assets/images/hero_architectural_office_1795610773375.jpg';
+import studioWorkshopImg from '../assets/images/craft_custom_workshop_1795610786970.jpg';
 
 export type { CategoryId, CatalogueCategory, CatalogueProduct } from '../types/catalogue';
 
 export const BRAND_MEDIA = {
-  heroEditorial: '/src/assets/images/hero_architectural_office_1795610773375.jpg',
-  studioWorkshop: '/src/assets/images/craft_custom_workshop_1795610786970.jpg',
+  heroEditorial: heroEditorialImg,
+  studioWorkshop: studioWorkshopImg,
 } as const;
 
 export const CATALOGUE_CONTACT = {
   mobile: '+91 90030 21099',
-  emailPlaceholder: 'quotes@priyafurniture.example',
-  addressLine1: '[Manufacturing Facility & Showroom Address Placeholder]',
-  addressLine2: '[Industrial Estate, City, State — Postal Code]',
-  hours: 'Mon – Sat, 9:00 AM – 6:00 PM (By Appointment)',
+  mobileHref: 'tel:+919003021099',
+  quotationNote: 'Direct factory quotations & colour customisation on request',
 } as const;
 
 /**
@@ -24,7 +25,7 @@ export const CATALOGUE_CONTACT = {
  * Add new category entries and product modules here as additional
  * Priya Furniture PDF catalogues (offices, hospitals, schools, etc.) are supplied.
  */
-export const CATEGORIES: CatalogueCategory[] = [
+const RAW_CATEGORIES: CatalogueCategory[] = [
   {
     id: 'pedicure-manicure',
     name: 'Pedicure & Manicure Stations',
@@ -75,12 +76,29 @@ export const CATEGORIES: CatalogueCategory[] = [
   },
 ];
 
-export const PRODUCTS: CatalogueProduct[] = [
+export const CATEGORIES: CatalogueCategory[] = RAW_CATEGORIES.map((category) => ({
+  ...category,
+  image: resolvePublicAsset(category.image),
+  cataloguePdfUrl: category.cataloguePdfUrl
+    ? resolvePublicAsset(category.cataloguePdfUrl)
+    : undefined,
+}));
+
+const RAW_PRODUCTS: CatalogueProduct[] = [
   ...PEDICURE_MANICURE_PRODUCTS,
   ...BARBER_CHAIR_PRODUCTS,
   ...HAIRWASH_STATION_PRODUCTS,
   ...FACIAL_BED_PRODUCTS,
 ];
+
+export const PRODUCTS: CatalogueProduct[] = RAW_PRODUCTS.map((product) => ({
+  ...product,
+  images: product.images.map((image) => ({
+    ...image,
+    url: resolvePublicAsset(image.url),
+  })),
+  sourcePdfUrl: product.sourcePdfUrl ? resolvePublicAsset(product.sourcePdfUrl) : undefined,
+}));
 
 export function getCategoryById(id: string): CatalogueCategory | undefined {
   return CATEGORIES.find((category) => category.id === id);
@@ -92,6 +110,41 @@ export function getProductsByCategory(categoryId: CategoryId): CatalogueProduct[
 
 export function getProductBySlug(slug: string): CatalogueProduct | undefined {
   return PRODUCTS.find((product) => product.slug === slug);
+}
+
+/**
+ * Resolves a product by BOTH categoryId and productCode (never productCode alone,
+ * since PF codes legitimately repeat across categories).
+ */
+export function getProductByCategoryAndCode(
+  categoryId: CategoryId,
+  productCode: string
+): CatalogueProduct | undefined {
+  const normalizedCode = productCode.trim().toUpperCase();
+  return PRODUCTS.find(
+    (product) =>
+      product.categoryId === categoryId &&
+      product.productCode.trim().toUpperCase() === normalizedCode
+  );
+}
+
+/**
+ * Returns the internal preliminary INR base reference rate for a product matched
+ * strictly by categoryId and productCode. Intended for internal quotation workflows only.
+ */
+export function getBaseReferenceRate(
+  categoryId: CategoryId,
+  productCode: string
+): number | undefined {
+  return getProductByCategoryAndCode(categoryId, productCode)?.baseReferenceRate;
+}
+
+export function formatIndicativeRate(rate: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(rate);
 }
 
 export function getRelatedProducts(product: CatalogueProduct, limit = 3): CatalogueProduct[] {

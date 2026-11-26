@@ -236,7 +236,7 @@ export function CataloguePage() {
               {activeCategoryMeta ? ` in ${activeCategoryMeta.name}` : ''}
               {searchQuery.trim() ? ` matching “${searchQuery.trim()}”` : ''}
             </p>
-            <p>All catalogue items are quotation-based · Color customizable on request</p>
+            <p>Indicative starting rates shown · Final pricing confirmed via quotation</p>
           </div>
         </div>
       </section>

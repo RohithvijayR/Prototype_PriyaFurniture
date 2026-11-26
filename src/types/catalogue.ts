@@ -42,6 +42,11 @@ export interface CatalogueProduct {
   customisationOptions?: string[];
   availabilityStatus?: string;
   pricingLabel: string;
+  /**
+   * Indicative preliminary base reference rate in INR ("Starting from").
+   * Not a fixed selling price; final quotation depends on customisation, quantity, and delivery.
+   */
+  baseReferenceRate?: number;
   sourcePdfUrl?: string;
   sourcePdfPage?: number;
 }

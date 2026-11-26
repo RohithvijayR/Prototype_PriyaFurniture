@@ -16,8 +16,8 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { key: 'home', label: 'Home', to: '/' },
-  { key: 'catalogue', label: 'Catalogue', to: '/catalogue' },
   { key: 'categories', label: 'Categories', sectionId: 'categories' },
+  { key: 'catalogue', label: 'Catalogue', to: '/catalogue' },
   { key: 'about', label: 'About', sectionId: 'about' },
   { key: 'contact', label: 'Contact', sectionId: 'contact' },
 ];
@@ -90,13 +90,12 @@ export function Navbar() {
     (sectionId: string) => {
       setMobileOpen(false);
       if (location.pathname === '/') {
-        const el = document.getElementById(sectionId);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-          return;
-        }
+        setActiveHomeSection(sectionId as NavKey);
       }
-      navigate(`/#${sectionId}`);
+      navigate(`/#${sectionId}`, {
+        replace: location.pathname === '/',
+        state: { scrollTo: sectionId, scrollTrigger: Date.now() },
+      });
     },
     [location.pathname, navigate]
   );

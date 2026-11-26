@@ -84,18 +84,28 @@ export function Footer() {
             <h3 className="font-sans text-xs font-medium tracking-wide text-[#D9CBB8]/70">
               Commercial & Sales Desk
             </h3>
-            <address className="not-italic space-y-2.5 text-sm text-[#D9CBB8]">
-              <p className="text-[#F5F0E8]/90">{CATALOGUE_CONTACT.addressLine1}</p>
-              <p>{CATALOGUE_CONTACT.addressLine2}</p>
-              <p className="pt-1 font-mono text-xs text-white tabular-nums">
-                Mob: {CATALOGUE_CONTACT.mobile}
+            <address className="not-italic space-y-3 text-sm text-[#D9CBB8]">
+              <div>
+                <p className="text-xs text-[#D9CBB8]/70 mb-1">Catalogue Sales Mobile</p>
+                <a
+                  href={CATALOGUE_CONTACT.mobileHref}
+                  className="font-mono text-sm text-white hover:text-[#D9CBB8] transition-colors tabular-nums"
+                >
+                  {CATALOGUE_CONTACT.mobile}
+                </a>
+              </div>
+              <p className="text-xs text-[#D9CBB8]/85 leading-relaxed">
+                {CATALOGUE_CONTACT.quotationNote}.
               </p>
-              <p className="font-mono text-xs text-white">
-                Email: {CATALOGUE_CONTACT.emailPlaceholder}
-              </p>
-              <p className="text-xs text-[#D9CBB8]/70 pt-1">
-                Showroom Hours: {CATALOGUE_CONTACT.hours}
-              </p>
+              <div className="pt-1">
+                <Link
+                  to="/quote"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-white hover:text-[#D9CBB8] transition-colors pb-0.5 border-b border-white/30 hover:border-[#D9CBB8]"
+                >
+                  <span>Request a Quotation Online</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" aria-hidden="true" />
+                </Link>
+              </div>
             </address>
           </div>
         </div>

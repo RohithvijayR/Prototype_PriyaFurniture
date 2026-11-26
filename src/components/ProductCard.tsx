@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
 import { CatalogueProduct } from '../types/catalogue';
+import { formatIndicativeRate } from '../data/catalogue';
 import { SafeImage } from './SafeImage';
 
 interface ProductCardProps {
@@ -54,9 +55,23 @@ export function ProductCard({ product }: ProductCardProps) {
           </Link>
         </h3>
 
-        <p className="text-sm text-[#586070] leading-relaxed line-clamp-2 mb-6 flex-1">
+        <p className="text-sm text-[#586070] leading-relaxed line-clamp-2 mb-5 flex-1">
           {product.description}
         </p>
+
+        {typeof product.baseReferenceRate === 'number' && (
+          <div className="mb-4 flex items-baseline justify-between gap-2">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs text-[#586070]">Starting from</span>
+              <span className="font-mono text-base font-medium tabular-nums text-[#202735]">
+                {formatIndicativeRate(product.baseReferenceRate)}
+              </span>
+            </div>
+            <span className="text-[11px] text-[#586070]/85 whitespace-nowrap">
+              Indicative rate
+            </span>
+          </div>
+        )}
 
         <div className="pt-4 border-t border-[#EAE1D3] flex items-center justify-between gap-3">
           <Link

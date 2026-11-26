@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useScroll, useTransform, useReducedMotion } from 'motion/react';
-import { ArrowRight, ArrowUpRight, ArrowDown } from 'lucide-react';
+import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import {
   BRAND_MEDIA,
   CATALOGUE_CONTACT,
@@ -37,7 +37,7 @@ const CUSTOM_PROCESS = [
     step: '01',
     title: 'Select Model Codes or Share Brief',
     description:
-      'Choose directly from our official product codes (such as PF 001 – PF 024) or submit bespoke spatial specifications for your site.',
+      `Choose directly from our ${PRODUCTS.length} models across ${CATEGORIES.length} published collections—each organised by its category PF code—or submit bespoke spatial specifications for your site.`,
   },
   {
     step: '02',
@@ -206,25 +206,16 @@ export function HomePage() {
 
                 <Link
                   to="/catalogue"
-                  className="inline-flex items-center gap-2.5 px-7 py-3.5 text-sm font-medium rounded-full text-white liquid-glass-dark hover:bg-white/20 transition-all duration-200 whitespace-nowrap"
+                  className="group inline-flex items-center gap-2.5 px-7 py-3.5 text-sm font-medium rounded-full bg-[#202735]/88 backdrop-blur-md text-white border border-white/55 hover:bg-white hover:text-[#202735] hover:border-white transition-all duration-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_10px_28px_-8px_rgba(10,14,22,0.55)] whitespace-nowrap"
                 >
                   <span>Explore Catalogue</span>
+                  <ArrowUpRight
+                    className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                    aria-hidden="true"
+                  />
                 </Link>
               </motion.div>
             </div>
-
-            <motion.a
-              href="#categories"
-              initial={prefersReducedMotion ? false : { opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.7, delay: 0.55, ease: EDITORIAL_EASE }}
-              className="hidden lg:inline-flex items-center gap-2.5 text-xs font-medium text-[#D9CBB8] hover:text-white transition-colors pb-1"
-            >
-              <span>Explore Catalogues</span>
-              <span className="w-8 h-8 rounded-full border border-white/25 flex items-center justify-center">
-                <ArrowDown className="w-3.5 h-3.5" aria-hidden="true" />
-              </span>
-            </motion.a>
           </div>
         </motion.div>
       </section>
@@ -568,18 +559,23 @@ export function HomePage() {
                   <div>
                     <dt className="text-xs text-[#D9CBB8]/75 mb-0.5">Catalogue Sales Mobile</dt>
                     <dd className="font-mono text-sm text-white tabular-nums">
-                      {CATALOGUE_CONTACT.mobile}
+                      <a
+                        href={CATALOGUE_CONTACT.mobileHref}
+                        className="hover:text-[#D9CBB8] transition-colors"
+                      >
+                        {CATALOGUE_CONTACT.mobile}
+                      </a>
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-[#D9CBB8]/75 mb-0.5">Email Enquiries</dt>
-                    <dd className="font-mono text-sm text-white">
-                      {CATALOGUE_CONTACT.emailPlaceholder}
+                    <dt className="text-xs text-[#D9CBB8]/75 mb-0.5">Published Collections</dt>
+                    <dd className="text-sm text-[#F5F0E8] tabular-nums">
+                      {PRODUCTS.length} models across {CATEGORIES.length} catalogues
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-[#D9CBB8]/75 mb-0.5">Factory & Showroom</dt>
-                    <dd className="text-sm text-[#F5F0E8]">{CATALOGUE_CONTACT.addressLine1}</dd>
+                    <dt className="text-xs text-[#D9CBB8]/75 mb-0.5">Quotation & Customisation</dt>
+                    <dd className="text-sm text-[#F5F0E8]">{CATALOGUE_CONTACT.quotationNote}</dd>
                   </div>
                 </dl>
               </div>
