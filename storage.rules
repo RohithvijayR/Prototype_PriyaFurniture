@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Phase 2 Foundation Storage Security Rules
+// All 59 catalogue product photos and 4 PDFs remain on static hosting in Phase 2.
+// Default-deny protects the Storage bucket until authenticated admin media management
+// is explicitly introduced in a future phase.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

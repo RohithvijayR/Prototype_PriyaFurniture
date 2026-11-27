@@ -1,7 +1,7 @@
-import { useState, FormEvent } from 'react';
+import { useState, useRef, FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { AlertCircle, CheckCircle2, Plus, Trash2, ArrowRight } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Plus, Trash2, ArrowRight, Loader2 } from 'lucide-react';
 import {
   CATALOGUE_CONTACT,
   CATEGORIES,
@@ -10,24 +10,22 @@ import {
 } from '../data/catalogue';
 import { CatalogueProduct } from '../types/catalogue';
 import { EDITORIAL_EASE } from '../components/MotionPrimitives';
+import { isFirebaseConfigured } from '../lib/firebase/config';
+import { QuoteServiceError } from '../lib/firebase/errors';
+import {
+  createQuoteSubmissionMeta,
+  submitQuoteRequest,
+} from '../services/quoteService';
+import {
+  QUOTE_LIMITS,
+  QUOTE_PATTERNS,
+  QuoteFormDraftInput,
+  QuoteItemDraftInput,
+  QuoteSubmissionMeta,
+} from '../types/quote';
 
-interface QuoteItemDraft {
-  id: string;
-  productSlug: string;
-  quantity: string;
-  dimensions: string;
-  materialFinish: string;
-}
-
-interface QuoteFormState {
-  organisationName: string;
-  contactPerson: string;
-  phone: string;
-  email: string;
-  deliveryLocation: string;
-  additionalRequirements: string;
-  items: QuoteItemDraft[];
-}
+type QuoteItemDraft = QuoteItemDraftInput;
+type QuoteFormState = QuoteFormDraftInput;
 
 interface FormErrors {
   organisationName?: string;
@@ -35,10 +33,12 @@ interface FormErrors {
   phone?: string;
   email?: string;
   deliveryLocation?: string;
+  additionalRequirements?: string;
   items?: Record<string, { productSlug?: string; quantity?: string }>;
 }
 
 interface SubmittedQuote {
+  quoteId: string;
   referenceId: string;
   submittedAt: string;
   data: QuoteFormState;
@@ -120,18 +120,27 @@ export function QuoteRequestPage() {
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState<SubmittedQuote | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Synchronous ref guards prevent double-click races and provide idempotent document IDs on retries.
+  const isSubmittingRef = useRef(false);
+  const submissionMetaRef = useRef<QuoteSubmissionMeta>(createQuoteSubmissionMeta());
+  const firebaseAvailable = isFirebaseConfigured();
 
   const updateField = <K extends keyof Omit<QuoteFormState, 'items'>>(
     field: K,
     value: QuoteFormState[K]
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+    if (submitError) setSubmitError(null);
     if (errors[field as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
 
   const updateItem = (itemId: string, patch: Partial<QuoteItemDraft>) => {
+    if (submitError) setSubmitError(null);
     setForm((prev) => ({
       ...prev,
       items: prev.items.map((item) => {
@@ -163,19 +172,22 @@ export function QuoteRequestPage() {
   };
 
   const addItem = () => {
-    setForm((prev) => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        {
-          id: `item-${Date.now()}-${prev.items.length + 1}`,
-          productSlug: '',
-          quantity: '1',
-          dimensions: '',
-          materialFinish: '',
-        },
-      ],
-    }));
+    setForm((prev) => {
+      if (prev.items.length >= QUOTE_LIMITS.MAX_ITEMS) return prev;
+      return {
+        ...prev,
+        items: [
+          ...prev.items,
+          {
+            id: `item-${Date.now()}-${prev.items.length + 1}`,
+            productSlug: '',
+            quantity: '1',
+            dimensions: '',
+            materialFinish: '',
+          },
+        ],
+      };
+    });
   };
 
   const removeItem = (itemId: string) => {
@@ -191,26 +203,52 @@ export function QuoteRequestPage() {
   const validate = (): FormErrors => {
     const nextErrors: FormErrors = {};
 
-    if (!form.organisationName.trim()) {
+    const org = form.organisationName.trim();
+    if (!org) {
       nextErrors.organisationName = 'Please enter your organisation, salon, or company name.';
+    } else if (org.length > QUOTE_LIMITS.ORGANISATION_MAX) {
+      nextErrors.organisationName = `Organisation name must be ${QUOTE_LIMITS.ORGANISATION_MAX} characters or fewer.`;
     }
-    if (!form.contactPerson.trim()) {
+
+    const contact = form.contactPerson.trim();
+    if (!contact) {
       nextErrors.contactPerson = 'Please enter the primary contact person.';
+    } else if (contact.length > QUOTE_LIMITS.CONTACT_PERSON_MAX) {
+      nextErrors.contactPerson = `Contact person must be ${QUOTE_LIMITS.CONTACT_PERSON_MAX} characters or fewer.`;
     }
-    const digitsOnly = form.phone.replace(/\D/g, '');
-    if (!form.phone.trim()) {
+
+    const phone = form.phone.trim();
+    const digitsOnly = phone.replace(/\D/g, '');
+    if (!phone) {
       nextErrors.phone = 'Please provide a contact telephone number.';
-    } else if (digitsOnly.length < 7) {
-      nextErrors.phone = 'Please enter a valid telephone number (at least 7 digits).';
+    } else if (
+      digitsOnly.length < QUOTE_LIMITS.PHONE_MIN ||
+      phone.length > QUOTE_LIMITS.PHONE_MAX ||
+      !QUOTE_PATTERNS.PHONE.test(phone)
+    ) {
+      nextErrors.phone =
+        'Please enter a valid telephone number (at least 7 digits; numbers, +, spaces, hyphens, or parentheses only).';
     }
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!form.email.trim()) {
+
+    const email = form.email.trim();
+    if (!email) {
       nextErrors.email = 'Please enter an email address.';
-    } else if (!emailPattern.test(form.email.trim())) {
+    } else if (
+      email.length > QUOTE_LIMITS.EMAIL_MAX ||
+      !QUOTE_PATTERNS.EMAIL.test(email)
+    ) {
       nextErrors.email = 'Please enter a valid email address.';
     }
-    if (!form.deliveryLocation.trim()) {
+
+    const location = form.deliveryLocation.trim();
+    if (!location || location.length < QUOTE_LIMITS.DELIVERY_LOCATION_MIN) {
       nextErrors.deliveryLocation = 'Please enter the project delivery city or site location.';
+    } else if (location.length > QUOTE_LIMITS.DELIVERY_LOCATION_MAX) {
+      nextErrors.deliveryLocation = `Delivery location must be ${QUOTE_LIMITS.DELIVERY_LOCATION_MAX} characters or fewer.`;
+    }
+
+    if (form.additionalRequirements.trim().length > QUOTE_LIMITS.ADDITIONAL_NOTES_MAX) {
+      nextErrors.additionalRequirements = `Additional notes must be ${QUOTE_LIMITS.ADDITIONAL_NOTES_MAX} characters or fewer.`;
     }
 
     const itemErrors: Record<string, { productSlug?: string; quantity?: string }> = {};
@@ -220,8 +258,13 @@ export function QuoteRequestPage() {
         entryErr.productSlug = 'Please select a catalogue model or custom specification.';
       }
       const qtyNum = parseInt(item.quantity, 10);
-      if (!item.quantity.trim() || Number.isNaN(qtyNum) || qtyNum < 1) {
-        entryErr.quantity = 'Enter a quantity of at least 1 unit.';
+      if (
+        !item.quantity.trim() ||
+        Number.isNaN(qtyNum) ||
+        qtyNum < QUOTE_LIMITS.MIN_QUANTITY ||
+        qtyNum > QUOTE_LIMITS.MAX_QUANTITY
+      ) {
+        entryErr.quantity = `Enter a quantity between ${QUOTE_LIMITS.MIN_QUANTITY} and ${QUOTE_LIMITS.MAX_QUANTITY} units.`;
       }
       if (entryErr.productSlug || entryErr.quantity) {
         itemErrors[item.id] = entryErr;
@@ -235,31 +278,51 @@ export function QuoteRequestPage() {
     return nextErrors;
   };
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+
     const validationErrors = validate();
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
+      setSubmitError(null);
       window.scrollTo({ top: 180, behavior: 'smooth' });
       return;
     }
 
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    setSubmitted({
-      referenceId: `PF-RFQ-${new Date().getFullYear()}-${randomSuffix}`,
-      submittedAt: new Date().toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }),
-      data: form,
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const result = await submitQuoteRequest(form, submissionMetaRef.current);
+      setSubmitted({
+        quoteId: result.quoteId,
+        referenceId: result.referenceId,
+        submittedAt: result.submittedAt,
+        data: form,
+      });
+      // Rotate submission metadata so any future request gets a fresh document ID.
+      submissionMetaRef.current = createQuoteSubmissionMeta();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+      const message =
+        error instanceof QuoteServiceError
+          ? error.message
+          : 'We could not submit your quotation request right now. Your form details are preserved—please try again or call our sales desk.';
+      setSubmitError(message);
+      window.scrollTo({ top: 180, behavior: 'smooth' });
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const handleNewRequest = () => {
     setSubmitted(null);
     setErrors({});
+    setSubmitError(null);
+    submissionMetaRef.current = createQuoteSubmissionMeta();
     setForm({
       organisationName: '',
       contactPerson: '',
@@ -411,7 +474,58 @@ export function QuoteRequestPage() {
         <div className="max-w-7xl mx-auto px-5 sm:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
             {/* Form Column */}
-            <form onSubmit={handleSubmit} noValidate className="lg:col-span-8 space-y-12">
+            <form
+              onSubmit={handleSubmit}
+              noValidate
+              aria-busy={isSubmitting}
+              className="lg:col-span-8 space-y-12"
+            >
+              {!firebaseAvailable && (
+                <div
+                  role="status"
+                  className="rounded-2xl bg-[#FAF8F4] border border-[#D9CBB8] p-4 flex items-start gap-3 text-sm text-[#202735]"
+                >
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-[#9B4D17]" aria-hidden="true" />
+                  <div>
+                    <p className="font-medium">Online quotation storage is currently offline</p>
+                    <p className="text-xs mt-0.5 text-[#586070]">
+                      You can still review products and prepare your inquiry here, or call our
+                      direct sales desk at{' '}
+                      <a
+                        href={CATALOGUE_CONTACT.mobileHref}
+                        className="font-mono font-medium text-[#202735] underline"
+                      >
+                        {CATALOGUE_CONTACT.mobile}
+                      </a>
+                      .
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {submitError && (
+                <div
+                  role="alert"
+                  className="rounded-2xl bg-[#FDF4F0] border border-[#9B4D17]/55 p-4 flex items-start gap-3 text-sm text-[#7E3D10]"
+                >
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="space-y-1">
+                    <p className="font-medium">Could not save your quotation request</p>
+                    <p className="text-xs text-[#7E3D10]/95 leading-relaxed">{submitError}</p>
+                    <p className="text-xs text-[#7E3D10]/90">
+                      Need immediate assistance? Call{' '}
+                      <a
+                        href={CATALOGUE_CONTACT.mobileHref}
+                        className="font-mono font-medium underline"
+                      >
+                        {CATALOGUE_CONTACT.mobile}
+                      </a>
+                      .
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {Object.keys(errors).length > 0 && (
                 <div
                   role="alert"
@@ -447,6 +561,7 @@ export function QuoteRequestPage() {
                     <input
                       id="organisationName"
                       type="text"
+                      maxLength={QUOTE_LIMITS.ORGANISATION_MAX}
                       value={form.organisationName}
                       onChange={(e) => updateField('organisationName', e.target.value)}
                       aria-invalid={Boolean(errors.organisationName)}
@@ -475,6 +590,7 @@ export function QuoteRequestPage() {
                     <input
                       id="contactPerson"
                       type="text"
+                      maxLength={QUOTE_LIMITS.CONTACT_PERSON_MAX}
                       value={form.contactPerson}
                       onChange={(e) => updateField('contactPerson', e.target.value)}
                       aria-invalid={Boolean(errors.contactPerson)}
@@ -503,6 +619,7 @@ export function QuoteRequestPage() {
                     <input
                       id="phone"
                       type="tel"
+                      maxLength={QUOTE_LIMITS.PHONE_MAX}
                       value={form.phone}
                       onChange={(e) => updateField('phone', e.target.value)}
                       aria-invalid={Boolean(errors.phone)}
@@ -531,6 +648,7 @@ export function QuoteRequestPage() {
                     <input
                       id="email"
                       type="email"
+                      maxLength={QUOTE_LIMITS.EMAIL_MAX}
                       value={form.email}
                       onChange={(e) => updateField('email', e.target.value)}
                       aria-invalid={Boolean(errors.email)}
@@ -561,10 +679,15 @@ export function QuoteRequestPage() {
                   <button
                     type="button"
                     onClick={addItem}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-full bg-[#F5F0E8] text-[#202735] hover:bg-[#202735] hover:text-white transition-colors cursor-pointer whitespace-nowrap"
+                    disabled={isSubmitting || form.items.length >= QUOTE_LIMITS.MAX_ITEMS}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-full bg-[#F5F0E8] text-[#202735] hover:bg-[#202735] hover:text-white transition-colors cursor-pointer whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Add Another Product</span>
+                    <span>
+                      {form.items.length >= QUOTE_LIMITS.MAX_ITEMS
+                        ? `Maximum ${QUOTE_LIMITS.MAX_ITEMS} Items`
+                        : 'Add Another Product'}
+                    </span>
                   </button>
                 </div>
 
@@ -658,7 +781,8 @@ export function QuoteRequestPage() {
                               <input
                                 id={`qty-${item.id}`}
                                 type="number"
-                                min={1}
+                                min={QUOTE_LIMITS.MIN_QUANTITY}
+                                max={QUOTE_LIMITS.MAX_QUANTITY}
                                 value={item.quantity}
                                 onChange={(e) =>
                                   updateItem(item.id, { quantity: e.target.value })
@@ -692,6 +816,7 @@ export function QuoteRequestPage() {
                               <input
                                 id={`dimensions-${item.id}`}
                                 type="text"
+                                maxLength={QUOTE_LIMITS.DIMENSIONS_MAX}
                                 value={item.dimensions}
                                 onChange={(e) =>
                                   updateItem(item.id, { dimensions: e.target.value })
@@ -711,6 +836,7 @@ export function QuoteRequestPage() {
                               <input
                                 id={`finish-${item.id}`}
                                 type="text"
+                                maxLength={QUOTE_LIMITS.MATERIAL_FINISH_MAX}
                                 value={item.materialFinish}
                                 onChange={(e) =>
                                   updateItem(item.id, { materialFinish: e.target.value })
@@ -746,6 +872,7 @@ export function QuoteRequestPage() {
                   <input
                     id="deliveryLocation"
                     type="text"
+                    maxLength={QUOTE_LIMITS.DELIVERY_LOCATION_MAX}
                     value={form.deliveryLocation}
                     onChange={(e) => updateField('deliveryLocation', e.target.value)}
                     aria-invalid={Boolean(errors.deliveryLocation)}
@@ -774,11 +901,19 @@ export function QuoteRequestPage() {
                   <textarea
                     id="additionalRequirements"
                     rows={4}
+                    maxLength={QUOTE_LIMITS.ADDITIONAL_NOTES_MAX}
                     value={form.additionalRequirements}
                     onChange={(e) => updateField('additionalRequirements', e.target.value)}
+                    aria-invalid={Boolean(errors.additionalRequirements)}
                     placeholder="Share target delivery dates, custom upholstery shades, plumbing or room layout notes, or additional furniture categories..."
                     className="w-full px-4 py-3 text-sm rounded-xl bg-white border border-[#D9CBB8] text-[#202735] placeholder:text-[#586070]/60 focus:border-[#202735] resize-y"
                   />
+                  {errors.additionalRequirements && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[#9B4D17]">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>{errors.additionalRequirements}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -788,13 +923,23 @@ export function QuoteRequestPage() {
                 </p>
                 <button
                   type="submit"
-                  className="group inline-flex items-center justify-center gap-2.5 px-8 py-3.5 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-all duration-200 shadow-[0_10px_24px_-6px_rgba(155,77,23,0.45)] whitespace-nowrap cursor-pointer"
+                  disabled={isSubmitting}
+                  className="group inline-flex items-center justify-center gap-2.5 px-8 py-3.5 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-all duration-200 shadow-[0_10px_24px_-6px_rgba(155,77,23,0.45)] whitespace-nowrap cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                 >
-                  <span>Submit Quotation Request</span>
-                  <ArrowRight
-                    className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5"
-                    aria-hidden="true"
-                  />
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                      <span>Submitting Quotation Request...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Submit Quotation Request</span>
+                      <ArrowRight
+                        className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                        aria-hidden="true"
+                      />
+                    </>
+                  )}
                 </button>
               </div>
             </form>

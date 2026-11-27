@@ -1,15 +1,22 @@
 import { useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'motion/react';
+import { AuthProvider } from './contexts/AuthContext';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { ScrollToTop } from './components/ScrollToTop';
 import { LoadingScreen } from './components/LoadingScreen';
 import { PageTransition } from './components/MotionPrimitives';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { PublicOnlyRoute } from './components/PublicOnlyRoute';
 import { HomePage } from './pages/HomePage';
 import { CataloguePage } from './pages/CataloguePage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
 import { QuoteRequestPage } from './pages/QuoteRequestPage';
+import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { AccountProfilePage } from './pages/AccountProfilePage';
 import { getRouterBasename } from './utils/assetPath';
 
 function AnimatedRoutes() {
@@ -50,6 +57,52 @@ function AnimatedRoutes() {
             </PageTransition>
           }
         />
+        <Route
+          path="/login"
+          element={
+            <PublicOnlyRoute>
+              <PageTransition>
+                <LoginPage />
+              </PageTransition>
+            </PublicOnlyRoute>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <PublicOnlyRoute>
+              <PageTransition>
+                <RegisterPage />
+              </PageTransition>
+            </PublicOnlyRoute>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <PageTransition>
+              <ForgotPasswordPage />
+            </PageTransition>
+          }
+        />
+        <Route
+          path="/account"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <AccountProfilePage />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Navigate to="/account" replace />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatePresence>
@@ -66,15 +119,17 @@ export default function App() {
 
   return (
     <BrowserRouter basename={basename}>
-      <LoadingScreen visible={showPreloader} onComplete={handleLoadingComplete} />
-      <ScrollToTop />
-      <div className="min-h-screen flex flex-col bg-white text-[#202735]">
-        <Navbar />
-        <div className="flex-1">
-          <AnimatedRoutes />
+      <AuthProvider>
+        <LoadingScreen visible={showPreloader} onComplete={handleLoadingComplete} />
+        <ScrollToTop />
+        <div className="min-h-screen flex flex-col bg-white text-[#202735]">
+          <Navbar />
+          <div className="flex-1">
+            <AnimatedRoutes />
+          </div>
+          <Footer />
         </div>
-        <Footer />
-      </div>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

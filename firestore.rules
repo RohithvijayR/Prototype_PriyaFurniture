@@ -1,0 +1,327 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1 / Global Safety Net: default-deny everything unless explicitly allowed below.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitive Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // =========================================================================
+    // Phase 2.2 ERP Data Architecture Collections (Explicit Default-Deny)
+    // =========================================================================
+    // Business-sensitive collections remain strictly locked until dedicated
+    // server-controlled ERP workflows are approved and implemented.
+
+    match /products/{productId} {
+      allow read, write: if false;
+    }
+
+    match /categories/{categoryId} {
+      allow read, write: if false;
+    }
+
+    match /quotationRequests/{quotationRequestId} {
+      allow read, write: if false;
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Phase 2.3 User Account Profiles (`/users/{userId}`)
+    // =========================================================================
+    // - Owner-only get, create, and allowlisted profile update.
+    // - Zero list or delete access (protects PII and ERP audit history).
+    // - Role is strictly forced to 'customer' on create and immutable on update.
+    // - Account status is strictly forced to 'active' on create and immutable on update.
+    // - Suspended accounts cannot mutate their profile.
+
+    function isValidOptionalAddress(addr) {
+      return addr == null || (
+        addr is map
+        && addr.keys().hasAll(['line1', 'city', 'state', 'postalCode', 'country'])
+        && addr.keys().hasOnly(['line1', 'line2', 'city', 'state', 'postalCode', 'country'])
+        && addr.line1 is string
+        && addr.line1.size() >= 1
+        && addr.line1.size() <= 200
+        && (!('line2' in addr) || (addr.line2 is string && addr.line2.size() <= 200))
+        && addr.city is string
+        && addr.city.size() >= 1
+        && addr.city.size() <= 100
+        && addr.state is string
+        && addr.state.size() >= 1
+        && addr.state.size() <= 100
+        && addr.postalCode is string
+        && addr.postalCode.size() >= 3
+        && addr.postalCode.size() <= 20
+        && addr.country is string
+        && addr.country.size() >= 2
+        && addr.country.size() <= 80
+      );
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data is map
+        && data.keys().hasAll([
+          'uid',
+          'displayName',
+          'email',
+          'phoneNumber',
+          'accountType',
+          'organizationName',
+          'billingAddress',
+          'shippingAddress',
+          'role',
+          'accountStatus',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'email',
+          'phoneNumber',
+          'accountType',
+          'organizationName',
+          'billingAddress',
+          'shippingAddress',
+          'role',
+          'accountStatus',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.uid is string
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.displayName is string
+        && data.displayName.size() >= 1
+        && data.displayName.size() <= 120
+        && data.email is string
+        && data.email.size() >= 5
+        && data.email.size() <= 254
+        && data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+        && data.phoneNumber is string
+        && data.phoneNumber.size() <= 32
+        && (data.phoneNumber.size() == 0 || data.phoneNumber.matches('^[+0-9()\\s.\\-]{7,32}$'))
+        && data.accountType is string
+        && data.accountType.size() >= 1
+        && data.accountType.size() <= 24
+        && data.accountType in ['individual', 'business', 'partner', 'internal']
+        && data.organizationName is string
+        && data.organizationName.size() <= 160
+        && isValidOptionalAddress(data.billingAddress)
+        && isValidOptionalAddress(data.shippingAddress)
+        && data.role is string
+        && data.role.size() >= 1
+        && data.role.size() <= 24
+        && data.role in ['customer', 'partner', 'sales', 'staff', 'admin']
+        && data.accountStatus is string
+        && data.accountStatus.size() >= 1
+        && data.accountStatus.size() <= 32
+        && data.accountStatus in ['active', 'pending_verification', 'suspended', 'inactive']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function matchesAuthEmail(email) {
+      return request.auth.token.email is string
+        && email.lower() == request.auth.token.email.lower();
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && matchesAuthEmail(incoming().email)
+        && incoming().role == 'customer'
+        && incoming().accountStatus == 'active'
+        && incoming().accountType in ['individual', 'business']
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && existing().accountStatus != 'suspended'
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName',
+          'phoneNumber',
+          'accountType',
+          'organizationName',
+          'billingAddress',
+          'shippingAddress',
+          'updatedAt'
+        ])
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email
+        && incoming().role == existing().role
+        && incoming().accountStatus == existing().accountStatus
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().accountType in ['individual', 'business']
+          || incoming().accountType == existing().accountType
+        );
+      allow delete: if false;
+    }
+
+    // =========================================================================
+    // Active Public B2B Quotation Intake (`/quoteRequests/{quoteId}`)
+    // =========================================================================
+    function isValidQuoteItem(item) {
+      return item is map
+        && item.size() == 8
+        && item.keys().hasOnly([
+          'productSlug',
+          'categoryId',
+          'productCode',
+          'productName',
+          'quantity',
+          'dimensions',
+          'materialFinish',
+          'indicativeUnitRate'
+        ])
+        && item.productSlug is string
+        && item.productSlug.size() >= 1
+        && item.productSlug.size() <= 100
+        && item.categoryId is string
+        && item.categoryId in ['pedicure-manicure', 'barber-chairs', 'hairwash-stations', 'facial-beds', 'custom']
+        && item.productCode is string
+        && item.productCode.size() >= 1
+        && item.productCode.size() <= 32
+        && item.productName is string
+        && item.productName.size() >= 1
+        && item.productName.size() <= 180
+        && item.quantity is int
+        && item.quantity >= 1
+        && item.quantity <= 10000
+        && item.dimensions is string
+        && item.dimensions.size() <= 200
+        && item.materialFinish is string
+        && item.materialFinish.size() <= 200
+        && item.indicativeUnitRate is int
+        && item.indicativeUnitRate >= 0
+        && item.indicativeUnitRate <= 10000000;
+    }
+
+    // Pillar 5 Total Array Guarding: strictly bounds list length (1..10) and validates
+    // first, second (when present), and last items — staying well within Firestore's
+    // 1,000-expression and 10-regex-call limits for all valid multi-item submissions.
+    function areQuoteItemsValid(items) {
+      return items is list
+        && items.size() >= 1
+        && items.size() <= 10
+        && isValidQuoteItem(items[0])
+        && items[0].productSlug.matches('^[a-z0-9\\-]+$')
+        && items[0].productCode.matches('^[A-Z0-9\\s\\-]+$')
+        && (items.size() <= 1 || isValidQuoteItem(items[1]))
+        && (items.size() <= 2 || isValidQuoteItem(items[items.size() - 1]));
+    }
+
+    function isValidQuoteRequest(data) {
+      return data is map
+        && data.keys().hasAll([
+          'referenceId',
+          'status',
+          'source',
+          'organisationName',
+          'contactPerson',
+          'phone',
+          'email',
+          'deliveryLocation',
+          'additionalRequirements',
+          'items',
+          'itemCount',
+          'totalQuantity',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'referenceId',
+          'status',
+          'source',
+          'organisationName',
+          'contactPerson',
+          'phone',
+          'email',
+          'deliveryLocation',
+          'additionalRequirements',
+          'items',
+          'itemCount',
+          'totalQuantity',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.referenceId is string
+        && data.referenceId.size() >= 12
+        && data.referenceId.size() <= 32
+        && data.referenceId.matches('^PF-RFQ-[0-9]{4}-[A-Z0-9]{4,8}$')
+        && data.status is string
+        && data.status.size() == 3
+        && data.status == 'new'
+        && data.source is string
+        && data.source.size() == 13
+        && data.source == 'web_catalogue'
+        && data.organisationName is string
+        && data.organisationName.size() >= 1
+        && data.organisationName.size() <= 160
+        && data.contactPerson is string
+        && data.contactPerson.size() >= 1
+        && data.contactPerson.size() <= 120
+        && data.phone is string
+        && data.phone.size() >= 7
+        && data.phone.size() <= 32
+        && data.phone.matches('^[+0-9()\\s.\\-]{7,32}$')
+        && data.email is string
+        && data.email.size() >= 5
+        && data.email.size() <= 254
+        && data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+        && data.deliveryLocation is string
+        && data.deliveryLocation.size() >= 2
+        && data.deliveryLocation.size() <= 200
+        && data.additionalRequirements is string
+        && data.additionalRequirements.size() <= 2000
+        && areQuoteItemsValid(data.items)
+        && data.itemCount is int
+        && data.itemCount == data.items.size()
+        && data.totalQuantity is int
+        && data.totalQuantity >= data.items.size()
+        && data.totalQuantity <= 100000
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    // Create-only for public visitors with strict schema, size, regex, status='new', and server timestamp checks.
+    // Zero public/client read, list, update, or delete access to protect customer PII until future Admin RBAC.
+    match /quoteRequests/{quoteId} {
+      allow create: if isValidId(quoteId) && isValidQuoteRequest(incoming());
+      allow get, list, update, delete: if false;
+    }
+  }
+}

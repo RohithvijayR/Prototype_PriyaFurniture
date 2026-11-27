@@ -1,0 +1,804 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Priya Furniture ERP product document compatible with all 59 static catalogue models. Identified strictly by composite ID `${categoryId}-${normalizedCode}` because PF codes repeat across categories.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Composite unique document ID (e.g. barber-chairs-pf-001). Never relies on productCode alone."
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "URL-safe unique product slug matching id."
+        },
+        "productCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^PF\\s?[0-9]{3}[A-Z0-9-]*$",
+          "description": "Official Priya Furniture model code within its category (e.g. PF 001). Not globally unique."
+        },
+        "categoryId": {
+          "type": "string",
+          "enum": [
+            "pedicure-manicure",
+            "barber-chairs",
+            "hairwash-stations",
+            "facial-beds"
+          ],
+          "description": "Parent category document ID referencing /categories/{categoryId}."
+        },
+        "categoryLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Denormalized category display label."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "description": "Catalogue product title."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Product overview and construction summary."
+        },
+        "features": {
+          "type": "array",
+          "description": "Bounded list (up to 20 strings) of key product features."
+        },
+        "specifications": {
+          "type": "array",
+          "description": "Bounded list (up to 20 objects with label/value strings) of technical specifications."
+        },
+        "imagePaths": {
+          "type": "array",
+          "description": "Primary product image paths (deployment-independent relative or storage paths, up to 12)."
+        },
+        "additionalImagePaths": {
+          "type": "array",
+          "description": "Additional supplementary image paths when available (up to 12)."
+        },
+        "indicativeBaseRateInr": {
+          "type": "integer",
+          "description": "Preliminary indicative base reference rate in INR (0 to 10000000, or null when quote-only). Not a fixed selling price."
+        },
+        "pricingMode": {
+          "type": "string",
+          "enum": ["indicative_starting_from", "quote_only"],
+          "description": "Pricing semantics marker preventing indicative starting rates from being treated as fixed selling prices."
+        },
+        "isCustomizable": {
+          "type": "boolean",
+          "description": "Indicates whether finish, colour, upholstery, or dimensional customisation is supported."
+        },
+        "customizationOptions": {
+          "type": "array",
+          "description": "Optional list of supported customisation notes."
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Active/inactive catalogue visibility status."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Highlights flagship models on overview pages."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp set on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp updated on modification."
+        }
+      },
+      "required": [
+        "id",
+        "slug",
+        "productCode",
+        "categoryId",
+        "categoryLabel",
+        "name",
+        "description",
+        "features",
+        "specifications",
+        "imagePaths",
+        "additionalImagePaths",
+        "pricingMode",
+        "isCustomizable",
+        "customizationOptions",
+        "isActive",
+        "featured",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Ordered Priya Furniture product category preserving the four existing collections while supporting future ERP categories.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "Unique category document ID (e.g. pedicure-manicure, barber-chairs, hairwash-stations, facial-beds)."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Full display name of the category."
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+          "description": "URL-safe category slug matching id."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Collection overview description."
+        },
+        "displayOrder": {
+          "type": "integer",
+          "description": "Ascending display sort order (1..N)."
+        },
+        "isActive": {
+          "type": "boolean",
+          "description": "Active/inactive category status."
+        },
+        "shortName": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Optional compact label for navigation tabs."
+        },
+        "tagline": {
+          "type": "string",
+          "maxLength": 240,
+          "description": "Optional short collection subtitle."
+        },
+        "coverImagePath": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Optional deployment-independent cover image path."
+        },
+        "cataloguePdfPath": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Optional deployment-independent printable PDF catalogue path."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp set on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp updated on modification."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "slug",
+        "description",
+        "displayOrder",
+        "isActive",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Address": {
+      "title": "Address",
+      "description": "Structured billing or shipping address stored on user profiles (PII).",
+      "type": "object",
+      "properties": {
+        "line1": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Primary street or building address."
+        },
+        "line2": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional floor, suite, or landmark."
+        },
+        "city": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "City or district."
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "State or union territory."
+        },
+        "postalCode": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 20,
+          "description": "PIN / postal code."
+        },
+        "country": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 80,
+          "description": "Country name."
+        }
+      },
+      "required": ["line1", "city", "state", "postalCode", "country"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Firebase Auth user profile containing PII and server-controlled role metadata. Owner-only get/create/update with strict schema validation; zero list/delete access and zero client role escalation.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Firebase Auth UID matching the /users/{userId} document ID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "User full display name (PII)."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 254,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Primary account email address matching Firebase Auth email (PII)."
+        },
+        "phoneNumber": {
+          "type": "string",
+          "maxLength": 32,
+          "pattern": "^(|[+0-9()\\s.-]{7,32})$",
+          "description": "Optional primary contact telephone number (PII; empty string when omitted)."
+        },
+        "accountType": {
+          "type": "string",
+          "enum": ["individual", "business", "partner", "internal"],
+          "description": "Account classification. Client self-registration is strictly restricted to 'individual' or 'business'."
+        },
+        "organizationName": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Optional salon, spa, clinic, distributor, or company name."
+        },
+        "billingAddress": {
+          "type": "object",
+          "$ref": "#/entities/Address",
+          "description": "Nullable structured billing address (PII)."
+        },
+        "shippingAddress": {
+          "type": "object",
+          "$ref": "#/entities/Address",
+          "description": "Nullable structured shipping address (PII)."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["customer", "partner", "sales", "staff", "admin"],
+          "description": "Server/admin-controlled RBAC role. Strictly forced to 'customer' on client create and immutable on client update."
+        },
+        "accountStatus": {
+          "type": "string",
+          "enum": ["active", "pending_verification", "suspended", "inactive"],
+          "description": "Server/admin-controlled account lifecycle status. Strictly forced to 'active' on client create and immutable on client update."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp set on profile creation; immutable thereafter."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp updated on profile modification."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "phoneNumber",
+        "accountType",
+        "organizationName",
+        "billingAddress",
+        "shippingAddress",
+        "role",
+        "accountStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "QuotationProductSnapshot": {
+      "title": "QuotationProductSnapshot",
+      "description": "Immutable point-in-time snapshot of a requested product captured inside /quotationRequests/{quotationRequestId}.",
+      "type": "object",
+      "properties": {
+        "productId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Composite product document ID (e.g. barber-chairs-pf-001) or 'custom'."
+        },
+        "categoryId": {
+          "type": "string",
+          "enum": [
+            "pedicure-manicure",
+            "barber-chairs",
+            "hairwash-stations",
+            "facial-beds",
+            "custom"
+          ],
+          "description": "Category ID paired with productCode to prevent cross-category PF collisions."
+        },
+        "categoryName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Snapshot of category display label at inquiry time."
+        },
+        "productCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Z0-9\\s-]+$",
+          "description": "Snapshot of official PF model code or CUSTOM."
+        },
+        "productName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "description": "Snapshot of catalogue product title at inquiry time."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Requested unit count (1 to 10000)."
+        },
+        "customizationDetails": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional customization notes for this line item."
+        },
+        "dimensions": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional standard or bespoke dimensions."
+        },
+        "materialFinishPreferences": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional upholstery, colour, or finish preference."
+        },
+        "indicativeBaseRateInr": {
+          "type": "integer",
+          "description": "Snapshot of indicative INR starting rate at inquiry time (or null for custom). Not a fixed selling price."
+        },
+        "imagePath": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Optional snapshot of portable primary image path at submission time."
+        }
+      },
+      "required": [
+        "productId",
+        "categoryId",
+        "categoryName",
+        "productCode",
+        "productName",
+        "quantity",
+        "customizationDetails",
+        "dimensions",
+        "materialFinishPreferences"
+      ]
+    },
+    "QuotationRequest": {
+      "title": "QuotationRequest",
+      "description": "Future-compatible ERP quotation request with immutable product snapshots, internal notes, and revision/order-conversion linkage. Strictly default-deny in Phase 2.2.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique Firestore document ID."
+        },
+        "referenceNumber": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 32,
+          "pattern": "^PF-RFQ-[0-9]{4}-[A-Z0-9]{4,8}$",
+          "description": "Human-readable quotation request reference number."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Nullable /users/{userId} reference when submitted by an authenticated user."
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Customer contact person name (PII)."
+        },
+        "organizationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Customer business, salon, spa, or organization name."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 254,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Customer email address (PII)."
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 32,
+          "pattern": "^[+0-9()\\s.-]{7,32}$",
+          "description": "Customer phone number (PII)."
+        },
+        "requestedProducts": {
+          "type": "array",
+          "description": "Bounded array (1 to 10) of QuotationProductSnapshot objects."
+        },
+        "itemCount": {
+          "type": "integer",
+          "description": "Count of requestedProducts entries (1 to 10)."
+        },
+        "totalQuantity": {
+          "type": "integer",
+          "description": "Sum of unit quantities across requestedProducts (1 to 100000)."
+        },
+        "deliveryLocation": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 200,
+          "description": "Project delivery city, state, or site address."
+        },
+        "additionalRequirements": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional timeline, room layout, or special project instructions."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "new",
+            "under_review",
+            "quoted",
+            "revised",
+            "approved",
+            "converted_to_order",
+            "rejected",
+            "archived"
+          ],
+          "description": "Quotation lifecycle workflow status."
+        },
+        "internalNotes": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Internal Priya Furniture staff review notes (never writable or readable by public/customers)."
+        },
+        "revisionNumber": {
+          "type": "integer",
+          "description": "Monotonic revision counter starting at 1 for future quotation revisions."
+        },
+        "parentQuotationRequestId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional link to a parent quotationRequests document when branched."
+        },
+        "activeQuotationVersionId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional pointer to an active formal quotation revision document."
+        },
+        "convertedOrderId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional pointer to a future sales order document after conversion."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp set on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp updated on modification."
+        }
+      },
+      "required": [
+        "id",
+        "referenceNumber",
+        "customerName",
+        "organizationName",
+        "email",
+        "phone",
+        "requestedProducts",
+        "itemCount",
+        "totalQuantity",
+        "deliveryLocation",
+        "additionalRequirements",
+        "status",
+        "internalNotes",
+        "revisionNumber",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Basic unpopulated application settings document structure for future ERP configuration. Strictly default-deny in Phase 2.2.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": ["general", "quotation", "catalogue"],
+          "description": "Singleton setting document identifier."
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "description": "Integer schema version for forward-compatible configuration migrations."
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Nullable future administrator UID who last updated this setting document."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp set on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp updated on modification."
+        }
+      },
+      "required": ["id", "schemaVersion", "createdAt", "updatedAt"]
+    },
+    "QuoteRequestItem": {
+      "title": "QuoteRequestItem",
+      "description": "A single furniture line item within an active public B2B quotation inquiry (/quoteRequests).",
+      "type": "object",
+      "properties": {
+        "productSlug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Catalogue product slug or 'custom' for bespoke builds."
+        },
+        "categoryId": {
+          "type": "string",
+          "enum": [
+            "pedicure-manicure",
+            "barber-chairs",
+            "hairwash-stations",
+            "facial-beds",
+            "custom"
+          ],
+          "description": "Category identifier paired with productCode to prevent cross-category PF code collisions."
+        },
+        "productCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "pattern": "^[A-Z0-9\\s-]+$",
+          "description": "Official Priya Furniture model code (e.g. PF 006) or CUSTOM."
+        },
+        "productName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "description": "Snapshot of the catalogue model display name at submission time."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Requested unit quantity (1 to 10000)."
+        },
+        "dimensions": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional standard or custom dimension notes."
+        },
+        "materialFinish": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional upholstery, colour, or finish preference."
+        },
+        "indicativeUnitRate": {
+          "type": "integer",
+          "description": "Indicative INR starting rate snapshot at inquiry time (0 for custom builds). Not a fixed selling price."
+        }
+      },
+      "required": [
+        "productSlug",
+        "categoryId",
+        "productCode",
+        "productName",
+        "quantity",
+        "dimensions",
+        "materialFinish",
+        "indicativeUnitRate"
+      ]
+    },
+    "QuoteRequest": {
+      "title": "QuoteRequest",
+      "description": "Existing active public B2B quotation inquiry submitted via the Request a Quote desk (/quoteRequests).",
+      "type": "object",
+      "properties": {
+        "referenceId": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 32,
+          "pattern": "^PF-RFQ-[0-9]{4}-[A-Z0-9]{4,8}$",
+          "description": "Customer-facing quotation inquiry reference number."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["new", "reviewed", "quoted", "converted", "archived"],
+          "description": "Workflow lifecycle state. Public submissions are strictly forced to 'new'."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["web_catalogue"],
+          "description": "Origin channel of the inquiry."
+        },
+        "organisationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Customer salon, spa, clinic, or company name."
+        },
+        "contactPerson": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Primary customer contact name and optional role."
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 32,
+          "pattern": "^[+0-9()\\s.-]{7,32}$",
+          "description": "Customer contact telephone number (PII)."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 5,
+          "maxLength": 254,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Customer business email address (PII)."
+        },
+        "deliveryLocation": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 200,
+          "description": "Delivery city, state, or site location."
+        },
+        "additionalRequirements": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Optional timeline, room layout, or customisation notes."
+        },
+        "items": {
+          "type": "array",
+          "description": "Bounded schedule of 1 to 10 QuoteRequestItem objects."
+        },
+        "itemCount": {
+          "type": "integer",
+          "description": "Total number of line items (must match items.length, 1 to 10)."
+        },
+        "totalQuantity": {
+          "type": "integer",
+          "description": "Sum of requested unit quantities across all line items (1 to 100000)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp set at creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp matching createdAt at creation."
+        }
+      },
+      "required": [
+        "referenceId",
+        "status",
+        "source",
+        "organisationName",
+        "contactPerson",
+        "phone",
+        "email",
+        "deliveryLocation",
+        "additionalRequirements",
+        "items",
+        "itemCount",
+        "totalQuantity",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/Product"
+      },
+      "description": "ERP product master collection (composite ID `${categoryId}-${normalizedCode}`). Unpopulated and default-deny in Phase 2.2 while static catalogue remains source of truth."
+    },
+    "/categories/{categoryId}": {
+      "schema": {
+        "$ref": "#/entities/Category"
+      },
+      "description": "ERP category registry preserving the four existing collections. Unpopulated and default-deny in Phase 2.2 while static catalogue remains source of truth."
+    },
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Future Firebase Auth user profiles, addresses, and server-controlled role metadata. Strictly default-deny in Phase 2.2."
+    },
+    "/quotationRequests/{quotationRequestId}": {
+      "schema": {
+        "$ref": "#/entities/QuotationRequest"
+      },
+      "description": "Future-compatible ERP quotation requests with product snapshots, internal notes, and revision/order linkage. Strictly default-deny in Phase 2.2."
+    },
+    "/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/Settings"
+      },
+      "description": "Unpopulated singleton application configuration documents (general, quotation, catalogue). Strictly default-deny in Phase 2.2."
+    },
+    "/quoteRequests/{quoteId}": {
+      "schema": {
+        "$ref": "#/entities/QuoteRequest"
+      },
+      "description": "Existing active public B2B quotation intake collection used by Request a Quote form. Public create-only with strict schema validation; zero public read/list/update/delete access."
+    }
+  }
+}

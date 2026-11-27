@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowRight, Menu, X } from 'lucide-react';
-import { PartnerLoginModal } from './PartnerLoginModal';
+import { ArrowRight, LogOut, Menu, User, X } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 import { EDITORIAL_EASE } from './MotionPrimitives';
 
 type NavKey = 'home' | 'catalogue' | 'categories' | 'about' | 'contact';
@@ -24,16 +24,32 @@ const NAV_ITEMS: NavItem[] = [
 
 export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [isPastHero, setIsPastHero] = useState(false);
   const [activeHomeSection, setActiveHomeSection] = useState<NavKey>('home');
 
+  const { user, profile, authLoading, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
 
   const isHomePage = location.pathname === '/';
   const useDarkGlass = isHomePage && !isPastHero;
+  const accountDisplayName = (
+    profile?.displayName ||
+    user?.displayName ||
+    user?.email?.split('@')[0] ||
+    'Account'
+  ).trim();
+  const accountFirstName = accountDisplayName.split(/\s+/)[0] || 'Account';
+
+  const handleMobileSignOut = useCallback(async () => {
+    setMobileOpen(false);
+    await logout();
+    navigate('/login', {
+      replace: true,
+      state: { notice: 'You have been signed out of your Priya Furniture account.' },
+    });
+  }, [logout, navigate]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -214,19 +230,41 @@ export function Navbar() {
                 })}
               </nav>
 
-              {/* Right: Login & Prominent Request a Quote CTA */}
+              {/* Right: Account / Login & Prominent Request a Quote CTA */}
               <div className="hidden lg:flex items-center gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setLoginModalOpen(true)}
-                  className={`px-3.5 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
-                    useDarkGlass
-                      ? 'text-white/85 hover:text-white hover:bg-white/10'
-                      : 'text-[#586070] hover:text-[#202735] hover:bg-[#202735]/[0.05]'
-                  }`}
-                >
-                  Login
-                </button>
+                {user ? (
+                  <Link
+                    to="/account"
+                    className={`inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 ${
+                      useDarkGlass
+                        ? location.pathname === '/account'
+                          ? 'bg-white/18 text-white'
+                          : 'text-white/90 hover:text-white hover:bg-white/10'
+                        : location.pathname === '/account'
+                          ? 'bg-[#202735]/[0.08] text-[#202735]'
+                          : 'text-[#202735] hover:bg-[#202735]/[0.06]'
+                    }`}
+                  >
+                    <User className="w-4 h-4 shrink-0" aria-hidden="true" />
+                    <span className="max-w-[110px] truncate">{accountFirstName}</span>
+                  </Link>
+                ) : (
+                  <Link
+                    to="/login"
+                    aria-disabled={authLoading}
+                    className={`px-3.5 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 ${
+                      useDarkGlass
+                        ? location.pathname === '/login' || location.pathname === '/register'
+                          ? 'bg-white/18 text-white'
+                          : 'text-white/85 hover:text-white hover:bg-white/10'
+                        : location.pathname === '/login' || location.pathname === '/register'
+                          ? 'bg-[#202735]/[0.08] text-[#202735]'
+                          : 'text-[#586070] hover:text-[#202735] hover:bg-[#202735]/[0.05]'
+                    }`}
+                  >
+                    Login
+                  </Link>
+                )}
                 <Link
                   to="/quote"
                   className="group inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-all duration-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_6px_18px_-4px_rgba(155,77,23,0.48)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_8px_22px_-4px_rgba(155,77,23,0.58)] whitespace-nowrap shrink-0"
@@ -320,20 +358,47 @@ export function Navbar() {
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-[#202735]/10 flex flex-col sm:flex-row gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMobileOpen(false);
-                      setLoginModalOpen(true);
-                    }}
-                    className="w-full sm:w-auto px-5 py-3 text-sm font-medium rounded-full text-[#202735] bg-white/70 border border-[#202735]/15 hover:border-[#202735] transition-colors cursor-pointer"
-                  >
-                    Partner Login
-                  </button>
+                  {user ? (
+                    <>
+                      <Link
+                        to="/account"
+                        onClick={() => setMobileOpen(false)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium rounded-full text-[#202735] bg-white/75 border border-[#202735]/15 hover:border-[#202735] transition-colors whitespace-nowrap"
+                      >
+                        <User className="w-4 h-4" aria-hidden="true" />
+                        <span>My Account</span>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => void handleMobileSignOut()}
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium rounded-full text-[#586070] bg-white/50 border border-[#202735]/12 hover:text-[#202735] transition-colors cursor-pointer whitespace-nowrap"
+                      >
+                        <LogOut className="w-4 h-4" aria-hidden="true" />
+                        <span>Sign Out</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <Link
+                        to="/login"
+                        onClick={() => setMobileOpen(false)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center px-5 py-3 text-sm font-medium rounded-full text-[#202735] bg-white/75 border border-[#202735]/15 hover:border-[#202735] transition-colors whitespace-nowrap"
+                      >
+                        Sign In
+                      </Link>
+                      <Link
+                        to="/register"
+                        onClick={() => setMobileOpen(false)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center px-5 py-3 text-sm font-medium rounded-full text-[#202735] bg-white/45 border border-[#202735]/12 hover:border-[#202735] transition-colors whitespace-nowrap"
+                      >
+                        Create Account
+                      </Link>
+                    </>
+                  )}
                   <Link
                     to="/quote"
                     onClick={() => setMobileOpen(false)}
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-colors"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-colors whitespace-nowrap"
                   >
                     <span>Request a Quote</span>
                     <ArrowRight className="w-4 h-4" aria-hidden="true" />
@@ -344,8 +409,6 @@ export function Navbar() {
           </AnimatePresence>
         </div>
       </header>
-
-      <PartnerLoginModal open={loginModalOpen} onClose={() => setLoginModalOpen(false)} />
     </>
   );
 }
