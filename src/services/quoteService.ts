@@ -1,53 +1,72 @@
-import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import {
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  setDoc,
+  startAfter,
+  where,
+  type QueryConstraint,
+  type QueryDocumentSnapshot,
+} from 'firebase/firestore';
 import { getProductBySlug } from '../data/catalogue';
 import { getFirebaseAuth, getFirestoreDb } from '../lib/firebase/client';
 import {
+  FIRESTORE_COLLECTIONS,
+  buildQuotationRequestIds,
+  createAuditTimestamps,
+  getQuotationRequestDocRef,
+  getQuotationRequestsCollection,
+  isValidFirestoreDocId,
+} from '../lib/firebase/collections';
+import {
   OperationType,
   QuoteServiceError,
+  classifyQuotationReadError,
   classifyQuoteSubmissionError,
   handleFirestoreError,
 } from '../lib/firebase/errors';
+import { createQuotationProductSnapshot } from '../lib/firebase/mappers';
+import type {
+  FirestoreQuotationProductSnapshot,
+  FirestoreQuotationRequest,
+  FirestoreQuotationRequestWrite,
+} from '../types/firestore';
 import {
   QUOTE_LIMITS,
   QUOTE_PATTERNS,
-  QuoteFormDraftInput,
-  QuoteRequestItem,
-  QuoteRequestPayload,
-  QuoteSubmissionMeta,
-  QuoteSubmissionResult,
+  type QuoteFormDraftInput,
+  type QuoteRequestPayload,
+  type QuoteSubmissionMeta,
+  type QuoteSubmissionResult,
 } from '../types/quote';
 
 const CUSTOM_PRODUCT_KEY = 'custom';
-const QUOTE_REQUESTS_COLLECTION = 'quoteRequests';
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 25;
+const FIRESTORE_TIMEOUT_MS = 12000;
 
-function randomAlphanumeric(length: number): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = new Uint8Array(length);
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < length; i += 1) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
-  }
-  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+export interface CustomerQuotationsPage {
+  items: FirestoreQuotationRequest[];
+  nextCursor: QueryDocumentSnapshot<FirestoreQuotationRequest> | null;
+  hasMore: boolean;
+}
+
+export interface ListCustomerQuotationsOptions {
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<FirestoreQuotationRequest> | null;
 }
 
 /**
- * Generates an idempotent Firestore document ID matching ^[a-zA-Z0-9_-]+$
- * and a customer-facing reference ID matching ^PF-RFQ-[0-9]{4}-[A-Z0-9]{4,8}$.
+ * Generates an idempotent Firestore document ID (`qr_YYYYMMDD_...`)
+ * and a customer-facing reference number (`PF-RFQ-YYYY-...`).
  */
 export function createQuoteSubmissionMeta(): QuoteSubmissionMeta {
-  const now = new Date();
-  const year = now.getFullYear();
-  const suffix = randomAlphanumeric(6);
-  const stamp = `${year}${String(now.getMonth() + 1).padStart(2, '0')}${String(
-    now.getDate()
-  ).padStart(2, '0')}`;
-
+  const { quotationRequestId, referenceNumber } = buildQuotationRequestIds();
   return {
-    quoteId: `rfq_${stamp}_${suffix.toLowerCase()}_${randomAlphanumeric(4).toLowerCase()}`,
-    referenceId: `PF-RFQ-${year}-${suffix}`,
+    quoteId: quotationRequestId,
+    referenceId: referenceNumber,
   };
 }
 
@@ -55,26 +74,59 @@ function clampText(value: string, maxLength: number): string {
   return value.trim().slice(0, maxLength);
 }
 
+async function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`deadline-exceeded: network timeout ${label}`));
+    }, FIRESTORE_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 /**
- * Sanitizes and validates raw form state into the exact Firestore schema declared in
- * firebase-blueprint.json and enforced by firestore.rules.
+ * Sanitizes and validates raw form state into the exact consolidated Firestore schema
+ * for `/quotationRequests/{quotationRequestId}` declared in `firebase-blueprint.json`
+ * and enforced by `firestore.rules`.
  */
 export function buildValidatedQuotePayload(
   input: QuoteFormDraftInput,
-  referenceId: string
+  submissionMeta: QuoteSubmissionMeta,
+  userId: string | null = null
 ): QuoteRequestPayload {
-  const cleanReferenceId = referenceId.trim();
-  if (!QUOTE_PATTERNS.REFERENCE_ID.test(cleanReferenceId)) {
+  const cleanId = submissionMeta.quoteId.trim();
+  if (
+    !cleanId ||
+    cleanId.length > QUOTE_LIMITS.DOCUMENT_ID_MAX ||
+    !QUOTE_PATTERNS.DOCUMENT_ID.test(cleanId)
+  ) {
+    throw new QuoteServiceError('validation', 'Invalid quotation submission identifier.');
+  }
+
+  const cleanReferenceNumber = submissionMeta.referenceId.trim();
+  if (!QUOTE_PATTERNS.REFERENCE_ID.test(cleanReferenceNumber)) {
     throw new QuoteServiceError('validation', 'Invalid quotation reference identifier.');
   }
 
-  const organisationName = clampText(input.organisationName, QUOTE_LIMITS.ORGANISATION_MAX);
-  if (!organisationName) {
+  const cleanUserId = userId ? userId.trim() : null;
+  if (cleanUserId !== null && !isValidFirestoreDocId(cleanUserId)) {
+    throw new QuoteServiceError('validation', 'Invalid authenticated user identifier.');
+  }
+
+  const organizationName = clampText(input.organisationName, QUOTE_LIMITS.ORGANISATION_MAX);
+  if (!organizationName) {
     throw new QuoteServiceError('validation', 'Organisation name is required.');
   }
 
-  const contactPerson = clampText(input.contactPerson, QUOTE_LIMITS.CONTACT_PERSON_MAX);
-  if (!contactPerson) {
+  const customerName = clampText(input.contactPerson, QUOTE_LIMITS.CONTACT_PERSON_MAX);
+  if (!customerName) {
     throw new QuoteServiceError('validation', 'Contact person name is required.');
   }
 
@@ -92,10 +144,7 @@ export function buildValidatedQuotePayload(
   }
 
   const email = clampText(input.email, QUOTE_LIMITS.EMAIL_MAX).toLowerCase();
-  if (
-    email.length < QUOTE_LIMITS.EMAIL_MIN ||
-    !QUOTE_PATTERNS.EMAIL.test(email)
-  ) {
+  if (email.length < QUOTE_LIMITS.EMAIL_MIN || !QUOTE_PATTERNS.EMAIL.test(email)) {
     throw new QuoteServiceError('validation', 'Please enter a valid email address.');
   }
 
@@ -119,7 +168,7 @@ export function buildValidatedQuotePayload(
     );
   }
 
-  const normalizedItems: QuoteRequestItem[] = input.items.map((draft, index) => {
+  const requestedProducts: FirestoreQuotationProductSnapshot[] = input.items.map((draft, index) => {
     const slug = draft.productSlug.trim().toLowerCase();
     if (!slug || !QUOTE_PATTERNS.PRODUCT_SLUG.test(slug)) {
       throw new QuoteServiceError(
@@ -142,50 +191,61 @@ export function buildValidatedQuotePayload(
     }
 
     const dimensions = clampText(draft.dimensions, QUOTE_LIMITS.DIMENSIONS_MAX);
-    const materialFinish = clampText(draft.materialFinish, QUOTE_LIMITS.MATERIAL_FINISH_MAX);
+    const materialFinishPreferences = clampText(
+      draft.materialFinish,
+      QUOTE_LIMITS.MATERIAL_FINISH_MAX
+    );
 
-    if (slug === CUSTOM_PRODUCT_KEY) {
-      return {
-        productSlug: CUSTOM_PRODUCT_KEY,
-        categoryId: 'custom',
-        productCode: 'CUSTOM',
-        productName: 'Custom / Other Category Furniture Requirement',
-        quantity,
-        dimensions,
-        materialFinish,
-        indicativeUnitRate: 0,
-      };
-    }
-
-    const matchedProduct = getProductBySlug(slug);
-    if (!matchedProduct) {
+    const matchedProduct = slug === CUSTOM_PRODUCT_KEY ? null : getProductBySlug(slug);
+    if (slug !== CUSTOM_PRODUCT_KEY && !matchedProduct) {
       throw new QuoteServiceError(
         'validation',
         `Line item ${index + 1} references an unrecognized catalogue model.`
       );
     }
 
-    const indicativeRate =
-      typeof matchedProduct.baseReferenceRate === 'number' &&
-      Number.isInteger(matchedProduct.baseReferenceRate) &&
-      matchedProduct.baseReferenceRate >= 0
-        ? Math.min(matchedProduct.baseReferenceRate, QUOTE_LIMITS.MAX_INDICATIVE_RATE)
-        : 0;
-
-    return {
-      productSlug: clampText(matchedProduct.slug, QUOTE_LIMITS.PRODUCT_SLUG_MAX),
-      categoryId: matchedProduct.categoryId,
-      productCode: clampText(matchedProduct.productCode.toUpperCase(), QUOTE_LIMITS.PRODUCT_CODE_MAX),
-      productName: clampText(matchedProduct.name, QUOTE_LIMITS.PRODUCT_NAME_MAX),
+    const rawSnapshot = createQuotationProductSnapshot(matchedProduct ?? null, {
       quantity,
       dimensions,
-      materialFinish,
-      indicativeUnitRate: indicativeRate,
+      materialFinishPreferences,
+      customizationDetails: '',
+    });
+
+    const boundedRate =
+      typeof rawSnapshot.indicativeBaseRateInr === 'number' &&
+      Number.isInteger(rawSnapshot.indicativeBaseRateInr) &&
+      rawSnapshot.indicativeBaseRateInr >= 0
+        ? Math.min(rawSnapshot.indicativeBaseRateInr, QUOTE_LIMITS.MAX_INDICATIVE_RATE)
+        : null;
+
+    return {
+      productId: clampText(rawSnapshot.productId, QUOTE_LIMITS.PRODUCT_SLUG_MAX),
+      categoryId: rawSnapshot.categoryId,
+      categoryName: clampText(rawSnapshot.categoryName, QUOTE_LIMITS.CATEGORY_NAME_MAX),
+      productCode: clampText(rawSnapshot.productCode, QUOTE_LIMITS.PRODUCT_CODE_MAX),
+      productName: clampText(rawSnapshot.productName, QUOTE_LIMITS.PRODUCT_NAME_MAX),
+      quantity: rawSnapshot.quantity,
+      customizationDetails: clampText(
+        rawSnapshot.customizationDetails,
+        QUOTE_LIMITS.CUSTOMIZATION_MAX
+      ),
+      dimensions: clampText(rawSnapshot.dimensions, QUOTE_LIMITS.DIMENSIONS_MAX),
+      materialFinishPreferences: clampText(
+        rawSnapshot.materialFinishPreferences,
+        QUOTE_LIMITS.MATERIAL_FINISH_MAX
+      ),
+      indicativeBaseRateInr: boundedRate,
+      imagePath: rawSnapshot.imagePath
+        ? clampText(rawSnapshot.imagePath, QUOTE_LIMITS.IMAGE_PATH_MAX)
+        : null,
     };
   });
 
-  const totalQuantity = normalizedItems.reduce((sum, item) => sum + item.quantity, 0);
-  if (totalQuantity < normalizedItems.length || totalQuantity > QUOTE_LIMITS.MAX_TOTAL_QUANTITY) {
+  const totalQuantity = requestedProducts.reduce((sum, item) => sum + item.quantity, 0);
+  if (
+    totalQuantity < requestedProducts.length ||
+    totalQuantity > QUOTE_LIMITS.MAX_TOTAL_QUANTITY
+  ) {
     throw new QuoteServiceError(
       'validation',
       'Total requested quantity exceeds the online form limit. Please contact our sales desk directly for bulk tenders.'
@@ -193,40 +253,44 @@ export function buildValidatedQuotePayload(
   }
 
   return {
-    referenceId: cleanReferenceId,
-    status: 'new',
+    id: cleanId,
+    referenceNumber: cleanReferenceNumber,
+    userId: cleanUserId,
     source: 'web_catalogue',
-    organisationName,
-    contactPerson,
-    phone,
+    customerName,
+    organizationName,
     email,
+    phone,
+    requestedProducts,
+    itemCount: requestedProducts.length,
+    totalQuantity,
     deliveryLocation,
     additionalRequirements,
-    items: normalizedItems,
-    itemCount: normalizedItems.length,
-    totalQuantity,
+    status: 'submitted',
+    revisionNumber: 1,
+    parentQuotationRequestId: null,
+    activeQuotationVersionId: null,
+    convertedOrderId: null,
   };
 }
 
 /**
- * Persists a validated public B2B quotation inquiry to Firestore under
- * /quoteRequests/{quoteId}. Uses a caller-supplied idempotent quoteId so
- * accidental double-clicks or network retries cannot create duplicate records.
+ * Persists a validated quotation request to the authoritative collection
+ * `/quotationRequests/{quotationRequestId}`.
+ *
+ * - Anonymous visitors submit with `userId: null`.
+ * - Signed-in customers automatically attach `userId: auth.currentUser.uid` so the
+ *   inquiry appears immediately under "My Quotations".
+ * - Uses caller-supplied idempotent IDs so accidental double-clicks or retries never
+ *   create duplicate documents.
  */
 export async function submitQuoteRequest(
   input: QuoteFormDraftInput,
   submissionMeta: QuoteSubmissionMeta
 ): Promise<QuoteSubmissionResult> {
-  const quoteId = submissionMeta.quoteId.trim();
-  if (
-    !quoteId ||
-    quoteId.length > QUOTE_LIMITS.DOCUMENT_ID_MAX ||
-    !QUOTE_PATTERNS.DOCUMENT_ID.test(quoteId)
-  ) {
-    throw new QuoteServiceError('validation', 'Invalid quotation submission identifier.');
-  }
-
-  const payload = buildValidatedQuotePayload(input, submissionMeta.referenceId);
+  const auth = getFirebaseAuth();
+  const currentUserId = auth?.currentUser?.uid ?? null;
+  const payload = buildValidatedQuotePayload(input, submissionMeta, currentUserId);
 
   const db = getFirestoreDb();
   if (!db) {
@@ -237,50 +301,167 @@ export async function submitQuoteRequest(
     );
   }
 
-  const documentPath = `${QUOTE_REQUESTS_COLLECTION}/${quoteId}`;
-  const SUBMIT_TIMEOUT_MS = 12000;
+  const documentPath = `${FIRESTORE_COLLECTIONS.QUOTATION_REQUESTS}/${payload.id}`;
+  const writeDocument: FirestoreQuotationRequestWrite = {
+    ...payload,
+    ...createAuditTimestamps(),
+  };
 
   try {
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        reject(new Error('deadline-exceeded: network timeout reaching Firestore'));
-      }, SUBMIT_TIMEOUT_MS);
-    });
-
-    try {
-      await Promise.race([
-        setDoc(doc(db, QUOTE_REQUESTS_COLLECTION, quoteId), {
-          ...payload,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        }),
-        timeoutPromise,
-      ]);
-    } finally {
-      if (timeoutHandle !== undefined) {
-        clearTimeout(timeoutHandle);
-      }
-    }
+    await withTimeout(
+      setDoc(getQuotationRequestDocRef(db, payload.id), writeDocument),
+      'reaching Firestore'
+    );
   } catch (error) {
-    // Log structured FirestoreErrorInfo diagnostics for permission/write failures
-    // without exposing raw internal stack traces to end users.
     try {
-      handleFirestoreError(error, OperationType.CREATE, documentPath, getFirebaseAuth());
+      handleFirestoreError(error, OperationType.CREATE, documentPath, auth);
     } catch {
-      // handleFirestoreError always throws after logging structured JSON; classify cleanly below.
+      // handleFirestoreError always throws after structured diagnostic logging.
     }
     throw classifyQuoteSubmissionError(error);
   }
 
   return {
-    quoteId,
-    referenceId: payload.referenceId,
+    quoteId: payload.id,
+    referenceId: payload.referenceNumber,
     submittedAt: new Date().toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
     }),
+    userId: payload.userId,
     payload,
   };
+}
+
+/**
+ * Fetches a bounded, cursor-paginated page of quotation requests owned by the signed-in user
+ * (`where('userId', '==', uid)` ordered newest-first by `createdAt`).
+ *
+ * Requires the composite index `(userId ASC, createdAt DESC)` on `quotationRequests`.
+ */
+export async function listCustomerQuotations(
+  uid: string,
+  options: ListCustomerQuotationsOptions = {}
+): Promise<CustomerQuotationsPage> {
+  const cleanUid = uid.trim();
+  if (!isValidFirestoreDocId(cleanUid)) {
+    throw new QuoteServiceError('validation', 'Invalid user account identifier.');
+  }
+
+  const db = getFirestoreDb();
+  if (!db) {
+    throw new QuoteServiceError(
+      'unconfigured',
+      'Quotation history is unavailable because Firebase is not configured for this environment.',
+      false
+    );
+  }
+
+  const requestedPageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+  const safePageSize = Math.min(Math.max(1, Math.floor(requestedPageSize)), MAX_PAGE_SIZE);
+
+  const constraints: QueryConstraint[] = [
+    where('userId', '==', cleanUid),
+    orderBy('createdAt', 'desc'),
+  ];
+  if (options.cursor) {
+    constraints.push(startAfter(options.cursor));
+  }
+  constraints.push(limit(safePageSize + 1));
+
+  const q = query(getQuotationRequestsCollection(db), ...constraints);
+
+  try {
+    const snapshot = await withTimeout(getDocs(q), 'loading customer quotations');
+    const hasMore = snapshot.docs.length > safePageSize;
+    const pageDocs = hasMore ? snapshot.docs.slice(0, safePageSize) : snapshot.docs;
+
+    const items: FirestoreQuotationRequest[] = pageDocs.map((docSnap) => {
+      const data = docSnap.data();
+      return {
+        ...data,
+        id: data.id || docSnap.id,
+      };
+    });
+
+    return {
+      items,
+      nextCursor: hasMore && pageDocs.length > 0 ? pageDocs[pageDocs.length - 1] : null,
+      hasMore,
+    };
+  } catch (error) {
+    try {
+      handleFirestoreError(
+        error,
+        OperationType.LIST,
+        FIRESTORE_COLLECTIONS.QUOTATION_REQUESTS,
+        getFirebaseAuth()
+      );
+    } catch {
+      // Structured diagnostics logged; classify cleanly for UI.
+    }
+    throw classifyQuotationReadError(error);
+  }
+}
+
+/**
+ * Fetches a single quotation request document owned by the signed-in user.
+ * Enforces owner-only access both via Firestore Security Rules and defense-in-depth client checks.
+ */
+export async function getCustomerQuotationById(
+  uid: string,
+  quotationRequestId: string
+): Promise<FirestoreQuotationRequest | null> {
+  const cleanUid = uid.trim();
+  const cleanId = quotationRequestId.trim();
+  if (!isValidFirestoreDocId(cleanUid) || !isValidFirestoreDocId(cleanId)) {
+    return null;
+  }
+
+  const db = getFirestoreDb();
+  if (!db) {
+    throw new QuoteServiceError(
+      'unconfigured',
+      'Quotation details are unavailable because Firebase is not configured for this environment.',
+      false
+    );
+  }
+
+  const documentPath = `${FIRESTORE_COLLECTIONS.QUOTATION_REQUESTS}/${cleanId}`;
+
+  try {
+    const snap = await withTimeout(
+      getDoc(getQuotationRequestDocRef(db, cleanId)),
+      'loading quotation details'
+    );
+
+    if (!snap.exists()) {
+      return null;
+    }
+
+    const data = snap.data();
+    if (data.userId !== cleanUid) {
+      throw new QuoteServiceError(
+        'permission-denied',
+        'This quotation record is unavailable or belongs to a different account.',
+        false
+      );
+    }
+
+    return {
+      ...data,
+      id: data.id || snap.id,
+    };
+  } catch (error) {
+    if (error instanceof QuoteServiceError) {
+      throw error;
+    }
+    try {
+      handleFirestoreError(error, OperationType.GET, documentPath, getFirebaseAuth());
+    } catch {
+      // Structured diagnostics logged; classify cleanly for UI.
+    }
+    throw classifyQuotationReadError(error);
+  }
 }

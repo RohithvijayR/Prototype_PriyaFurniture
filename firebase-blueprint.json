@@ -419,12 +419,47 @@
         "quantity",
         "customizationDetails",
         "dimensions",
-        "materialFinishPreferences"
+        "materialFinishPreferences",
+        "indicativeBaseRateInr",
+        "imagePath"
       ]
+    },
+    "QuotationInternalNote": {
+      "title": "QuotationInternalNote",
+      "description": "Internal Priya Furniture staff review note physically isolated in /quotationRequests/{quotationRequestId}/internalNotes/{noteId}. Strictly default-deny for public and customer SDK access.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "authorUid", "note", "createdAt", "updatedAt"]
     },
     "QuotationRequest": {
       "title": "QuotationRequest",
-      "description": "Future-compatible ERP quotation request with immutable product snapshots, internal notes, and revision/order-conversion linkage. Strictly default-deny in Phase 2.2.",
+      "description": "Authoritative Priya Furniture quotation request stored in /quotationRequests/{quotationRequestId}. Public and authenticated customers may create with strict validation and status='submitted'; authenticated owners may read/list only their own records; zero client update/delete; internal notes physically isolated in subcollection.",
       "type": "object",
       "properties": {
         "id": {
@@ -432,7 +467,7 @@
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_-]+$",
-          "description": "Unique Firestore document ID."
+          "description": "Unique Firestore document ID matching /quotationRequests/{quotationRequestId}."
         },
         "referenceNumber": {
           "type": "string",
@@ -444,7 +479,12 @@
         "userId": {
           "type": "string",
           "maxLength": 128,
-          "description": "Nullable /users/{userId} reference when submitted by an authenticated user."
+          "description": "Nullable /users/{userId} reference (request.auth.uid when signed in; null for guest public inquiries)."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["web_catalogue"],
+          "description": "Submission channel identifier."
         },
         "customerName": {
           "type": "string",
@@ -499,21 +539,15 @@
         "status": {
           "type": "string",
           "enum": [
-            "new",
+            "submitted",
             "under_review",
-            "quoted",
-            "revised",
+            "quotation_prepared",
+            "awaiting_customer_approval",
             "approved",
-            "converted_to_order",
-            "rejected",
-            "archived"
+            "declined",
+            "converted_to_order"
           ],
-          "description": "Quotation lifecycle workflow status."
-        },
-        "internalNotes": {
-          "type": "string",
-          "maxLength": 4000,
-          "description": "Internal Priya Furniture staff review notes (never writable or readable by public/customers)."
+          "description": "Controlled customer-visible quotation lifecycle status. Strictly forced to 'submitted' on client create."
         },
         "revisionNumber": {
           "type": "integer",
@@ -522,17 +556,17 @@
         "parentQuotationRequestId": {
           "type": "string",
           "maxLength": 128,
-          "description": "Optional link to a parent quotationRequests document when branched."
+          "description": "Nullable link to a parent quotationRequests document when branched."
         },
         "activeQuotationVersionId": {
           "type": "string",
           "maxLength": 128,
-          "description": "Optional pointer to an active formal quotation revision document."
+          "description": "Nullable pointer to an active formal quotation revision document."
         },
         "convertedOrderId": {
           "type": "string",
           "maxLength": 128,
-          "description": "Optional pointer to a future sales order document after conversion."
+          "description": "Nullable pointer to a future sales order document after conversion."
         },
         "createdAt": {
           "type": "string",
@@ -548,6 +582,8 @@
       "required": [
         "id",
         "referenceNumber",
+        "userId",
+        "source",
         "customerName",
         "organizationName",
         "email",
@@ -558,8 +594,10 @@
         "deliveryLocation",
         "additionalRequirements",
         "status",
-        "internalNotes",
         "revisionNumber",
+        "parentQuotationRequestId",
+        "activeQuotationVersionId",
+        "convertedOrderId",
         "createdAt",
         "updatedAt"
       ]
@@ -780,25 +818,31 @@
       "schema": {
         "$ref": "#/entities/User"
       },
-      "description": "Future Firebase Auth user profiles, addresses, and server-controlled role metadata. Strictly default-deny in Phase 2.2."
+      "description": "Active Firebase Auth user profiles, addresses, and server-controlled role metadata. Owner-only get/create/update; zero list/delete; zero client role escalation."
     },
     "/quotationRequests/{quotationRequestId}": {
       "schema": {
         "$ref": "#/entities/QuotationRequest"
       },
-      "description": "Future-compatible ERP quotation requests with product snapshots, internal notes, and revision/order linkage. Strictly default-deny in Phase 2.2."
+      "description": "Authoritative Priya Furniture quotation requests collection. Public & authenticated create (status='submitted', userId=null or auth.uid); owner-only customer get/list; zero client update/delete."
+    },
+    "/quotationRequests/{quotationRequestId}/internalNotes/{noteId}": {
+      "schema": {
+        "$ref": "#/entities/QuotationInternalNote"
+      },
+      "description": "Physically isolated internal staff review notes subcollection. Strictly default-deny for public and customer SDK access."
     },
     "/settings/{settingId}": {
       "schema": {
         "$ref": "#/entities/Settings"
       },
-      "description": "Unpopulated singleton application configuration documents (general, quotation, catalogue). Strictly default-deny in Phase 2.2."
+      "description": "Unpopulated singleton application configuration documents (general, quotation, catalogue). Strictly default-deny."
     },
     "/quoteRequests/{quoteId}": {
       "schema": {
         "$ref": "#/entities/QuoteRequest"
       },
-      "description": "Existing active public B2B quotation intake collection used by Request a Quote form. Public create-only with strict schema validation; zero public read/list/update/delete access."
+      "description": "Retired legacy Phase 2.1 public quotation intake collection. Locked as default-deny in Phase 2.4 while preserving any historical records intact."
     }
   }
 }

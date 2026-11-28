@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowRight, LogOut, Menu, User, X } from 'lucide-react';
+import { ArrowRight, FileText, LogOut, Menu, User, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { EDITORIAL_EASE } from './MotionPrimitives';
 
@@ -151,7 +151,7 @@ export function Navbar() {
               }`}
             />
 
-            <div className="h-[58px] lg:h-[64px] px-4 sm:px-5 lg:px-6 flex items-center justify-between gap-4 lg:gap-8">
+            <div className="h-[58px] lg:h-[64px] px-4 sm:px-5 lg:px-6 flex items-center justify-between gap-3 lg:gap-5">
               {/* Left: Brand Wordmark */}
               <Link
                 to="/"
@@ -172,7 +172,7 @@ export function Navbar() {
               >
                 {NAV_ITEMS.map((item) => {
                   const isActive = activeKey === item.key;
-                  const baseLinkClass = `relative px-3.5 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
+                  const baseLinkClass = `relative px-3 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 cursor-pointer ${
                     useDarkGlass
                       ? isActive
                         ? 'text-white'
@@ -230,24 +230,41 @@ export function Navbar() {
                 })}
               </nav>
 
-              {/* Right: Account / Login & Prominent Request a Quote CTA */}
-              <div className="hidden lg:flex items-center gap-2.5 shrink-0">
+              {/* Right: Authenticated Quotations / Account / Login & Prominent Request a Quote CTA */}
+              <div className="hidden lg:flex items-center gap-2 shrink-0">
                 {user ? (
-                  <Link
-                    to="/account"
-                    className={`inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 ${
-                      useDarkGlass
-                        ? location.pathname === '/account'
-                          ? 'bg-white/18 text-white'
-                          : 'text-white/90 hover:text-white hover:bg-white/10'
-                        : location.pathname === '/account'
-                          ? 'bg-[#202735]/[0.08] text-[#202735]'
-                          : 'text-[#202735] hover:bg-[#202735]/[0.06]'
-                    }`}
-                  >
-                    <User className="w-4 h-4 shrink-0" aria-hidden="true" />
-                    <span className="max-w-[110px] truncate">{accountFirstName}</span>
-                  </Link>
+                  <>
+                    <Link
+                      to="/quotations"
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 ${
+                        useDarkGlass
+                          ? location.pathname.startsWith('/quotations')
+                            ? 'bg-white/18 text-white'
+                            : 'text-white/90 hover:text-white hover:bg-white/10'
+                          : location.pathname.startsWith('/quotations')
+                            ? 'bg-[#202735]/[0.08] text-[#202735]'
+                            : 'text-[#202735] hover:bg-[#202735]/[0.06]'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span>My Quotations</span>
+                    </Link>
+                    <Link
+                      to="/account"
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap shrink-0 ${
+                        useDarkGlass
+                          ? location.pathname === '/account'
+                            ? 'bg-white/18 text-white'
+                            : 'text-white/90 hover:text-white hover:bg-white/10'
+                          : location.pathname === '/account'
+                            ? 'bg-[#202735]/[0.08] text-[#202735]'
+                            : 'text-[#202735] hover:bg-[#202735]/[0.06]'
+                      }`}
+                    >
+                      <User className="w-4 h-4 shrink-0" aria-hidden="true" />
+                      <span className="max-w-[96px] truncate">{accountFirstName}</span>
+                    </Link>
+                  </>
                 ) : (
                   <Link
                     to="/login"
@@ -360,6 +377,14 @@ export function Navbar() {
                 <div className="mt-4 pt-4 border-t border-[#202735]/10 flex flex-col sm:flex-row gap-2.5">
                   {user ? (
                     <>
+                      <Link
+                        to="/quotations"
+                        onClick={() => setMobileOpen(false)}
+                        className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium rounded-full text-[#202735] bg-white/85 border border-[#202735]/15 hover:border-[#202735] transition-colors whitespace-nowrap"
+                      >
+                        <FileText className="w-4 h-4" aria-hidden="true" />
+                        <span>My Quotations</span>
+                      </Link>
                       <Link
                         to="/account"
                         onClick={() => setMobileOpen(false)}

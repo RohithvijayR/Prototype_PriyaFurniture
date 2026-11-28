@@ -1,13 +1,14 @@
-import { useState, useRef, FormEvent } from 'react';
+import { useState, useRef, useEffect, FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { AlertCircle, CheckCircle2, Plus, Trash2, ArrowRight, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Plus, Trash2, ArrowRight, Loader2, FileText } from 'lucide-react';
 import {
   CATALOGUE_CONTACT,
   CATEGORIES,
   PRODUCTS,
   getProductBySlug,
 } from '../data/catalogue';
+import { useAuth } from '../contexts/AuthContext';
 import { CatalogueProduct } from '../types/catalogue';
 import { EDITORIAL_EASE } from '../components/MotionPrimitives';
 import { isFirebaseConfigured } from '../lib/firebase/config';
@@ -41,6 +42,7 @@ interface SubmittedQuote {
   quoteId: string;
   referenceId: string;
   submittedAt: string;
+  userId: string | null;
   data: QuoteFormState;
 }
 
@@ -101,6 +103,7 @@ function getProductDisplayName(slug: string): string {
 export function QuoteRequestPage() {
   const [searchParams] = useSearchParams();
   const prefersReducedMotion = useReducedMotion();
+  const { user, profile } = useAuth();
 
   const [form, setForm] = useState<QuoteFormState>(() => ({
     organisationName: '',
@@ -126,7 +129,33 @@ export function QuoteRequestPage() {
   // Synchronous ref guards prevent double-click races and provide idempotent document IDs on retries.
   const isSubmittingRef = useRef(false);
   const submissionMetaRef = useRef<QuoteSubmissionMeta>(createQuoteSubmissionMeta());
+  const prefilledForUidRef = useRef<string | null>(null);
   const firebaseAvailable = isFirebaseConfigured();
+
+  // Gently prefill blank contact fields from the signed-in customer profile without overwriting user input.
+  useEffect(() => {
+    if (!user) {
+      prefilledForUidRef.current = null;
+      return;
+    }
+    const uidKey = `${user.uid}:${profile ? 'profile' : 'auth'}`;
+    if (prefilledForUidRef.current === uidKey) return;
+    prefilledForUidRef.current = uidKey;
+
+    const preferredAddress = profile?.shippingAddress ?? profile?.billingAddress ?? null;
+    const defaultLocation = preferredAddress
+      ? [preferredAddress.city, preferredAddress.state].filter(Boolean).join(', ')
+      : '';
+
+    setForm((prev) => ({
+      ...prev,
+      organisationName: prev.organisationName || profile?.organizationName || '',
+      contactPerson: prev.contactPerson || profile?.displayName || user.displayName || '',
+      phone: prev.phone || profile?.phoneNumber || '',
+      email: prev.email || profile?.email || user.email || '',
+      deliveryLocation: prev.deliveryLocation || defaultLocation,
+    }));
+  }, [user, profile]);
 
   const updateField = <K extends keyof Omit<QuoteFormState, 'items'>>(
     field: K,
@@ -300,6 +329,7 @@ export function QuoteRequestPage() {
         quoteId: result.quoteId,
         referenceId: result.referenceId,
         submittedAt: result.submittedAt,
+        userId: result.userId,
         data: form,
       });
       // Rotate submission metadata so any future request gets a fresh document ID.
@@ -323,12 +353,16 @@ export function QuoteRequestPage() {
     setErrors({});
     setSubmitError(null);
     submissionMetaRef.current = createQuoteSubmissionMeta();
+    const preferredAddress = profile?.shippingAddress ?? profile?.billingAddress ?? null;
+    const defaultLocation = preferredAddress
+      ? [preferredAddress.city, preferredAddress.state].filter(Boolean).join(', ')
+      : '';
     setForm({
-      organisationName: '',
-      contactPerson: '',
-      phone: '',
-      email: '',
-      deliveryLocation: '',
+      organisationName: profile?.organizationName || '',
+      contactPerson: profile?.displayName || user?.displayName || '',
+      phone: profile?.phoneNumber || '',
+      email: profile?.email || user?.email || '',
+      deliveryLocation: defaultLocation,
       additionalRequirements: '',
       items: [createInitialItem(null, null, null)],
     });
@@ -427,7 +461,20 @@ export function QuoteRequestPage() {
               )}
             </dl>
 
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3.5">
+              {submitted.userId && (
+                <Link
+                  to={`/quotations/${submitted.quoteId}`}
+                  className="group inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-colors"
+                >
+                  <FileText className="w-4 h-4" aria-hidden="true" />
+                  <span>View in My Quotations</span>
+                  <ArrowRight
+                    className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                    aria-hidden="true"
+                  />
+                </Link>
+              )}
               <Link
                 to="/catalogue"
                 className="group inline-flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-full bg-[#202735] text-white hover:bg-[#2E3647] transition-colors"
@@ -919,7 +966,18 @@ export function QuoteRequestPage() {
 
               <div className="pt-4 border-t border-[#EAE1D3] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <p className="text-xs text-[#586070]">
-                  Submitting a quotation request carries no purchase obligation.
+                  {user ? (
+                    <>
+                      Signed in as <span className="font-medium text-[#202735]">{user.email}</span>{' '}
+                      — this request will appear in{' '}
+                      <Link to="/quotations" className="underline text-[#202735] hover:text-[#9B4D17]">
+                        My Quotations
+                      </Link>
+                      .
+                    </>
+                  ) : (
+                    'Submitting a quotation request carries no purchase obligation.'
+                  )}
                 </p>
                 <button
                   type="submit"

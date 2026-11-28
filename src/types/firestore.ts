@@ -241,15 +241,108 @@ export interface UserProfileUpdateInput {
 // 4. Quotation Requests Collection (`quotationRequests/{quotationRequestId}`)
 // ---------------------------------------------------------------------------
 
+/**
+ * Controlled customer-visible quotation lifecycle statuses.
+ *
+ * SECURITY CONSTRAINT:
+ * - Public and customer creation is strictly forced to `'submitted'` by `firestore.rules`.
+ * - Customers have zero update/delete permissions on `quotationRequests` and can never
+ *   change statuses or write administrative fields.
+ */
 export type QuotationRequestStatus =
-  | 'new'
+  | 'submitted'
   | 'under_review'
-  | 'quoted'
-  | 'revised'
+  | 'quotation_prepared'
+  | 'awaiting_customer_approval'
   | 'approved'
-  | 'converted_to_order'
-  | 'rejected'
-  | 'archived';
+  | 'declined'
+  | 'converted_to_order';
+
+export const QUOTATION_REQUEST_STATUSES: readonly QuotationRequestStatus[] = [
+  'submitted',
+  'under_review',
+  'quotation_prepared',
+  'awaiting_customer_approval',
+  'approved',
+  'declined',
+  'converted_to_order',
+] as const;
+
+export interface QuotationStatusDisplayMeta {
+  status: QuotationRequestStatus;
+  label: string;
+  shortDescription: string;
+  stepIndex: number;
+  tone: 'neutral' | 'amber' | 'slate' | 'positive' | 'muted';
+}
+
+export const QUOTATION_STATUS_META: Record<QuotationRequestStatus, QuotationStatusDisplayMeta> = {
+  submitted: {
+    status: 'submitted',
+    label: 'Submitted',
+    shortDescription: 'Your quotation request has been received by the Priya Furniture sales desk.',
+    stepIndex: 0,
+    tone: 'neutral',
+  },
+  under_review: {
+    status: 'under_review',
+    label: 'Under Review',
+    shortDescription: 'Our team is reviewing your requested models, quantities, and finish preferences.',
+    stepIndex: 1,
+    tone: 'slate',
+  },
+  quotation_prepared: {
+    status: 'quotation_prepared',
+    label: 'Quotation Prepared',
+    shortDescription: 'An itemized factory quotation has been prepared for your inquiry.',
+    stepIndex: 2,
+    tone: 'amber',
+  },
+  awaiting_customer_approval: {
+    status: 'awaiting_customer_approval',
+    label: 'Awaiting Customer Approval',
+    shortDescription: 'Your quotation is ready and awaiting your review and confirmation.',
+    stepIndex: 3,
+    tone: 'amber',
+  },
+  approved: {
+    status: 'approved',
+    label: 'Approved',
+    shortDescription: 'Your quotation has been approved and confirmed for next steps.',
+    stepIndex: 4,
+    tone: 'positive',
+  },
+  declined: {
+    status: 'declined',
+    label: 'Declined',
+    shortDescription: 'This quotation request was closed or declined.',
+    stepIndex: 4,
+    tone: 'muted',
+  },
+  converted_to_order: {
+    status: 'converted_to_order',
+    label: 'Converted to Order',
+    shortDescription: 'This quotation has been converted into a confirmed Priya Furniture order.',
+    stepIndex: 5,
+    tone: 'positive',
+  },
+};
+
+export function getQuotationStatusMeta(status: string): QuotationStatusDisplayMeta {
+  if (status in QUOTATION_STATUS_META) {
+    return QUOTATION_STATUS_META[status as QuotationRequestStatus];
+  }
+  return {
+    status: 'submitted',
+    label: status
+      .split('_')
+      .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : ''))
+      .join(' '),
+    shortDescription: 'Status updated by Priya Furniture.',
+    stepIndex: 0,
+    tone: 'neutral',
+  };
+}
 
 /**
  * Immutable product snapshot captured at the time a quotation request is submitted.
@@ -273,26 +366,30 @@ export interface FirestoreQuotationProductSnapshot {
    * Strictly preliminary—never treated as a fixed selling price.
    */
   indicativeBaseRateInr: number | null;
-  /** Optional snapshot of primary product image path at submission time. */
+  /** Optional snapshot of portable primary product image path at submission time. */
   imagePath: string | null;
 }
 
 /**
- * Future-compatible ERP quotation request document schema (`quotationRequests/{quotationRequestId}`).
+ * Authoritative ERP quotation request document schema (`quotationRequests/{quotationRequestId}`).
  *
- * Includes immutable product snapshots and nullable linkage fields (`revisionNumber`,
- * `parentQuotationRequestId`, `activeQuotationVersionId`, `convertedOrderId`) so future
- * quotation revisions and order-conversion workflows can extend this collection cleanly
- * without destructive migrations.
+ * Security & PII Isolation:
+ * - `userId` is `null` for anonymous public inquiries and `request.auth.uid` for signed-in customers.
+ * - Authenticated customers may only `get` or `list` documents where `userId == request.auth.uid`.
+ * - Internal administrative notes are physically isolated in the locked subcollection
+ *   `quotationRequests/{quotationRequestId}/internalNotes/{noteId}` and NEVER stored on this
+ *   customer-readable document.
  */
 export interface FirestoreQuotationRequest<TTimestamp = FirestoreTimestampValue>
   extends FirestoreAuditFields<TTimestamp> {
-  /** Unique Firestore document ID. */
+  /** Unique Firestore document ID (`qr_YYYYMMDD_<6-char>_<4-char>`). */
   id: string;
   /** Human-readable reference identifier (e.g. `PF-RFQ-2026-AB12CD`). */
   referenceNumber: string;
-  /** Optional `users/{userId}` reference when submitted by an authenticated account. */
+  /** Firebase Auth UID when submitted by a signed-in customer, or `null` for guest inquiries. */
   userId: string | null;
+  /** Submission channel identifier. */
+  source: 'web_catalogue';
   customerName: string;
   organizationName: string;
   email: string;
@@ -304,8 +401,6 @@ export interface FirestoreQuotationRequest<TTimestamp = FirestoreTimestampValue>
   deliveryLocation: string;
   additionalRequirements: string;
   status: QuotationRequestStatus;
-  /** Internal staff-only review notes; never writable or readable by public/customers. */
-  internalNotes: string;
   /** Monotonic revision counter starting at 1 for future quotation revision workflows. */
   revisionNumber: number;
   /** Optional reference to an earlier `quotationRequests/{id}` if branched as a revision. */
@@ -314,6 +409,17 @@ export interface FirestoreQuotationRequest<TTimestamp = FirestoreTimestampValue>
   activeQuotationVersionId: string | null;
   /** Optional reference to a future `orders/{orderId}` document upon conversion. */
   convertedOrderId: string | null;
+}
+
+/**
+ * Isolated internal staff note document (`quotationRequests/{quotationRequestId}/internalNotes/{noteId}`).
+ * Strictly default-deny for all public and customer SDK access.
+ */
+export interface FirestoreQuotationInternalNote<TTimestamp = FirestoreTimestampValue>
+  extends FirestoreAuditFields<TTimestamp> {
+  id: string;
+  authorUid: string;
+  note: string;
 }
 
 export type FirestoreQuotationRequestDraft = Omit<

@@ -6,9 +6,10 @@ import { SafeImage } from './SafeImage';
 
 interface ProductCardProps {
   product: CatalogueProduct;
+  imageLoading?: 'eager' | 'lazy';
 }
 
-export function ProductCard({ product }: ProductCardProps) {
+export function ProductCard({ product, imageLoading = 'lazy' }: ProductCardProps) {
   const primaryImage = product.images[0];
   const hasColorCustomisation = product.customisationOptions?.some((opt) =>
     opt.toLowerCase().includes('color')
@@ -25,6 +26,7 @@ export function ProductCard({ product }: ProductCardProps) {
           src={primaryImage?.url ?? ''}
           alt={primaryImage?.alt ?? product.name}
           fallbackTitle={product.name}
+          loading={imageLoading}
           containerClassName="bg-white"
           className="w-full h-full object-contain transition-transform duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.05]"
         />

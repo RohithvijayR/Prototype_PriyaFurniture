@@ -267,7 +267,7 @@ export function CataloguePage() {
                     ease: EDITORIAL_EASE,
                   }}
                 >
-                  <ProductCard product={product} />
+                  <ProductCard product={product} imageLoading={idx < 6 ? 'eager' : 'lazy'} />
                 </motion.div>
               ))}
             </div>

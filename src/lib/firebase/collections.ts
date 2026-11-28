@@ -21,12 +21,13 @@ import {
 } from '../../types/firestore';
 
 /**
- * Centralized Phase 2.2 Firestore Collection Identifiers.
+ * Centralized Authoritative Firestore Collection Identifiers.
  *
- * NOTE: The existing live public Request a Quote form (`src/services/quoteService.ts`)
- * currently writes to `quoteRequests` (created in Phase 2.1/2.2 quote intake).
- * `quotationRequests` is the target ERP collection established in Phase 2.2 Data Architecture
- * and remains default-deny until collection consolidation is approved before Phase 2.3.
+ * Phase 2.4 Consolidation:
+ * - `quotationRequests` is the single authoritative collection for both public and
+ *   authenticated customer quotation requests.
+ * - The legacy Phase 2.1 `quoteRequests` collection is retired from client writes and
+ *   retained as default-deny in `firestore.rules` (no destructive migration or deletion).
  */
 export const FIRESTORE_COLLECTIONS = {
   PRODUCTS: 'products',
@@ -34,6 +35,10 @@ export const FIRESTORE_COLLECTIONS = {
   USERS: 'users',
   QUOTATION_REQUESTS: 'quotationRequests',
   SETTINGS: 'settings',
+} as const;
+
+export const FIRESTORE_SUBCOLLECTIONS = {
+  QUOTATION_INTERNAL_NOTES: 'internalNotes',
 } as const;
 
 export type FirestoreCollectionName =

@@ -30,6 +30,8 @@ export type QuoteServiceErrorCode =
   | 'unconfigured'
   | 'validation'
   | 'permission-denied'
+  | 'not-found'
+  | 'index-required'
   | 'network'
   | 'quota-exceeded'
   | 'unknown';
@@ -126,6 +128,74 @@ export function classifyQuoteSubmissionError(error: unknown): QuoteServiceError 
   return new QuoteServiceError(
     'unknown',
     'We could not save your quotation request due to an unexpected error. Your form entries have been preserved—please retry or call our sales desk directly.',
+    true
+  );
+}
+
+/**
+ * Maps raw Firestore read/query errors on `/quotationRequests` to safe, actionable customer messages.
+ */
+export function classifyQuotationReadError(error: unknown): QuoteServiceError {
+  if (error instanceof QuoteServiceError) {
+    return error;
+  }
+
+  const firebaseCode =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : '';
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = `${firebaseCode} ${message}`.toLowerCase();
+
+  if (normalized.includes('failed-precondition') || normalized.includes('requires an index')) {
+    return new QuoteServiceError(
+      'index-required',
+      'Your quotation history index is still initializing in Firestore. Please try again shortly.',
+      true
+    );
+  }
+
+  if (
+    normalized.includes('unavailable') ||
+    normalized.includes('offline') ||
+    normalized.includes('network') ||
+    normalized.includes('failed to fetch') ||
+    normalized.includes('deadline-exceeded')
+  ) {
+    return new QuoteServiceError(
+      'network',
+      'Unable to reach the quotation server right now. Please check your internet connection and try again.',
+      true
+    );
+  }
+
+  if (normalized.includes('resource-exhausted') || normalized.includes('quota')) {
+    return new QuoteServiceError(
+      'quota-exceeded',
+      'The quotation service has temporarily reached its daily quota. Please try again later.',
+      false
+    );
+  }
+
+  if (normalized.includes('permission-denied') || normalized.includes('insufficient permissions')) {
+    return new QuoteServiceError(
+      'permission-denied',
+      'This quotation record is unavailable or belongs to a different account.',
+      false
+    );
+  }
+
+  if (normalized.includes('not-found')) {
+    return new QuoteServiceError(
+      'not-found',
+      'We could not locate this quotation request in your account.',
+      false
+    );
+  }
+
+  return new QuoteServiceError(
+    'unknown',
+    'We could not load your quotation requests right now. Please try again in a moment.',
     true
   );
 }

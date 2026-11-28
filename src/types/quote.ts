@@ -1,4 +1,9 @@
 import type { CategoryId } from './catalogue';
+import type {
+  FirestoreQuotationProductSnapshot,
+  FirestoreQuotationRequestDraft,
+  QuotationRequestStatus,
+} from './firestore';
 
 /**
  * Validation bounds and patterns synchronized verbatim with
@@ -22,8 +27,11 @@ export const QUOTE_LIMITS = {
   PRODUCT_SLUG_MAX: 100,
   PRODUCT_CODE_MAX: 32,
   PRODUCT_NAME_MAX: 180,
+  CATEGORY_NAME_MAX: 120,
   DIMENSIONS_MAX: 200,
   MATERIAL_FINISH_MAX: 200,
+  CUSTOMIZATION_MAX: 500,
+  IMAGE_PATH_MAX: 300,
   DOCUMENT_ID_MAX: 128,
 } as const;
 
@@ -36,38 +44,15 @@ export const QUOTE_PATTERNS = {
   EMAIL: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
 } as const;
 
-export type QuoteStatus = 'new' | 'reviewed' | 'quoted' | 'converted' | 'archived';
+export type QuoteStatus = QuotationRequestStatus;
 
 export type QuoteSource = 'web_catalogue';
 
 export type QuoteCategoryId = CategoryId | 'custom';
 
-export interface QuoteRequestItem {
-  productSlug: string;
-  categoryId: QuoteCategoryId;
-  productCode: string;
-  productName: string;
-  quantity: number;
-  dimensions: string;
-  materialFinish: string;
-  /** Indicative INR starting rate snapshot at inquiry time (0 for custom builds). */
-  indicativeUnitRate: number;
-}
+export type QuoteRequestItem = FirestoreQuotationProductSnapshot;
 
-export interface QuoteRequestPayload {
-  referenceId: string;
-  status: 'new';
-  source: QuoteSource;
-  organisationName: string;
-  contactPerson: string;
-  phone: string;
-  email: string;
-  deliveryLocation: string;
-  additionalRequirements: string;
-  items: QuoteRequestItem[];
-  itemCount: number;
-  totalQuantity: number;
-}
+export type QuoteRequestPayload = FirestoreQuotationRequestDraft;
 
 export interface QuoteItemDraftInput {
   id: string;
@@ -96,5 +81,6 @@ export interface QuoteSubmissionResult {
   quoteId: string;
   referenceId: string;
   submittedAt: string;
+  userId: string | null;
   payload: QuoteRequestPayload;
 }

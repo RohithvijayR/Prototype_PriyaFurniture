@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Armchair } from 'lucide-react';
 
 interface SafeImageProps {
@@ -10,6 +10,13 @@ interface SafeImageProps {
   loading?: 'eager' | 'lazy';
 }
 
+function buildAttemptSrc(src: string, retryCount: number): string {
+  if (!src || retryCount === 0) return src;
+  if (src.startsWith('data:') || src.startsWith('blob:')) return src;
+  const separator = src.includes('?') ? '&' : '?';
+  return `${src}${separator}retry=${retryCount}`;
+}
+
 export function SafeImage({
   src,
   alt,
@@ -19,11 +26,28 @@ export function SafeImage({
   loading = 'lazy',
 }: SafeImageProps) {
   const imgRef = useRef<HTMLImageElement>(null);
+  const retryTimerRef = useRef<number | null>(null);
   const [hasError, setHasError] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
 
+  const attemptSrc = buildAttemptSrc(src, retryCount);
+
   useEffect(() => {
+    return () => {
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Reset state when src changes and synchronously detect already-cached images before paint.
+  useLayoutEffect(() => {
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+
     setHasError(false);
     setRetryCount(0);
 
@@ -40,14 +64,15 @@ export function SafeImage({
     setIsLoaded(false);
   }, [src]);
 
-  // Re-check cached completion if recovering from a previous error state on a new src.
+  // Re-check cached completion after mount/retry in case the load event fired
+  // before React attached listeners.
   useEffect(() => {
     if (hasError || isLoaded) return;
     const img = imgRef.current;
     if (img && img.complete && img.naturalWidth > 0) {
       setIsLoaded(true);
     }
-  }, [hasError, isLoaded, retryCount, src]);
+  }, [hasError, isLoaded, retryCount, attemptSrc]);
 
   const handleLoad = () => {
     setHasError(false);
@@ -55,10 +80,16 @@ export function SafeImage({
   };
 
   const handleError = () => {
-    // Allow one clean retry for transient CDN/network hiccups under concurrent loads
-    // before falling back to the placeholder preview card.
+    // Allow one delayed cache-busted retry for transient CDN/network hiccups
+    // under concurrent loads before falling back to the placeholder preview card.
     if (retryCount < 1 && src) {
-      setRetryCount((prev) => prev + 1);
+      if (retryTimerRef.current !== null) {
+        window.clearTimeout(retryTimerRef.current);
+      }
+      retryTimerRef.current = window.setTimeout(() => {
+        retryTimerRef.current = null;
+        setRetryCount((prev) => prev + 1);
+      }, 250);
       return;
     }
     setIsLoaded(false);
@@ -83,26 +114,24 @@ export function SafeImage({
 
   return (
     <div className={`relative w-full h-full overflow-hidden ${containerClassName}`}>
-      {!isLoaded && (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 skeleton-shimmer"
-        />
-      )}
       <img
-        key={`${src}-${retryCount}`}
+        key={`${attemptSrc}-${retryCount}`}
         ref={imgRef}
-        src={src}
+        src={attemptSrc}
         alt={alt}
         loading={loading}
         decoding="async"
         referrerPolicy="no-referrer"
         onLoad={handleLoad}
         onError={handleError}
-        className={`${className} transition-opacity duration-500 ease-out ${
-          isLoaded ? 'opacity-100' : 'opacity-0'
-        }`}
+        className={className}
       />
+      {!isLoaded && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-10 pointer-events-none skeleton-shimmer"
+        />
+      )}
     </div>
   );
 }

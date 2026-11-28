@@ -17,6 +17,8 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { AccountProfilePage } from './pages/AccountProfilePage';
+import { MyQuotationsPage } from './pages/MyQuotationsPage';
+import { QuotationDetailPage } from './pages/QuotationDetailPage';
 import { getRouterBasename } from './utils/assetPath';
 
 function AnimatedRoutes() {
@@ -100,6 +102,26 @@ function AnimatedRoutes() {
           element={
             <ProtectedRoute>
               <Navigate to="/account" replace />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/quotations"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <MyQuotationsPage />
+              </PageTransition>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/quotations/:quotationId"
+          element={
+            <ProtectedRoute>
+              <PageTransition>
+                <QuotationDetailPage />
+              </PageTransition>
             </ProtectedRoute>
           }
         />

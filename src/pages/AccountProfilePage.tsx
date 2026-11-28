@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  FileText,
   Loader2,
   LogOut,
   RefreshCw,
@@ -922,6 +923,13 @@ export function AccountProfilePage() {
                 </div>
 
                 <div className="flex flex-col gap-2.5">
+                  <Link
+                    to="/quotations"
+                    className="min-h-[44px] group inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-full bg-white text-[#202735] hover:bg-[#F5F0E8] transition-colors whitespace-nowrap"
+                  >
+                    <FileText className="w-4 h-4" aria-hidden="true" />
+                    <span>My Quotations</span>
+                  </Link>
                   <Link
                     to="/quote"
                     className="min-h-[44px] group inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium rounded-full bg-[#9B4D17] text-white hover:bg-[#7E3D10] transition-colors whitespace-nowrap"

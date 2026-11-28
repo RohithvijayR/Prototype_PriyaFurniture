@@ -29,7 +29,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // Phase 2.2 ERP Data Architecture Collections (Explicit Default-Deny)
+    // Locked ERP Collections & Retired Legacy Collections (Explicit Default-Deny)
     // =========================================================================
     // Business-sensitive collections remain strictly locked until dedicated
     // server-controlled ERP workflows are approved and implemented.
@@ -42,11 +42,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /quotationRequests/{quotationRequestId} {
+    match /settings/{settingId} {
       allow read, write: if false;
     }
 
-    match /settings/{settingId} {
+    // Retired legacy Phase 2.1 intake collection: locked default-deny to preserve
+    // any historical records intact without allowing new writes or client reads.
+    match /quoteRequests/{quoteId} {
       allow read, write: if false;
     }
 
@@ -192,136 +194,99 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // Active Public B2B Quotation Intake (`/quoteRequests/{quoteId}`)
+    // Phase 2.4 Authoritative Quotation Requests (`/quotationRequests/{id}`)
     // =========================================================================
-    function isValidQuoteItem(item) {
+    // - Public visitors create with `userId == null`; signed-in customers create
+    //   with `userId == request.auth.uid`.
+    // - Status is strictly locked to `'submitted'` on create.
+    // - Signed-in customers may only `get` or `list` documents where
+    //   `resource.data.userId == request.auth.uid`.
+    // - Zero client `update` or `delete` permissions (immutable history & status).
+    // - Internal staff notes are physically isolated in locked subcollection
+    //   `/quotationRequests/{quotationRequestId}/internalNotes/{noteId}`.
+
+    // Exact 11-key allowlist: item.size() == 11 combined with explicit evaluation of
+    // all 11 distinct keys rejects any missing or extra shadow fields without incurring
+    // quadratic keys().hasOnly() expression overhead on multi-item submissions.
+    function isValidQuotationProductSnapshot(item) {
       return item is map
-        && item.size() == 8
-        && item.keys().hasOnly([
-          'productSlug',
-          'categoryId',
-          'productCode',
-          'productName',
-          'quantity',
-          'dimensions',
-          'materialFinish',
-          'indicativeUnitRate'
-        ])
-        && item.productSlug is string
-        && item.productSlug.size() >= 1
-        && item.productSlug.size() <= 100
-        && item.categoryId is string
+        && item.size() == 11
+        && item.productId is string && item.productId.size() >= 1 && item.productId.size() <= 100
         && item.categoryId in ['pedicure-manicure', 'barber-chairs', 'hairwash-stations', 'facial-beds', 'custom']
-        && item.productCode is string
-        && item.productCode.size() >= 1
-        && item.productCode.size() <= 32
-        && item.productName is string
-        && item.productName.size() >= 1
-        && item.productName.size() <= 180
-        && item.quantity is int
-        && item.quantity >= 1
-        && item.quantity <= 10000
-        && item.dimensions is string
-        && item.dimensions.size() <= 200
-        && item.materialFinish is string
-        && item.materialFinish.size() <= 200
-        && item.indicativeUnitRate is int
-        && item.indicativeUnitRate >= 0
-        && item.indicativeUnitRate <= 10000000;
+        && item.categoryName is string && item.categoryName.size() >= 1 && item.categoryName.size() <= 120
+        && item.productCode is string && item.productCode.size() >= 1 && item.productCode.size() <= 32
+        && item.productName is string && item.productName.size() >= 1 && item.productName.size() <= 180
+        && item.quantity is int && item.quantity >= 1 && item.quantity <= 10000
+        && item.customizationDetails is string && item.customizationDetails.size() <= 500
+        && item.dimensions is string && item.dimensions.size() <= 200
+        && item.materialFinishPreferences is string && item.materialFinishPreferences.size() <= 200
+        && (item.indicativeBaseRateInr == null || (item.indicativeBaseRateInr is int && item.indicativeBaseRateInr >= 0 && item.indicativeBaseRateInr <= 10000000))
+        && (item.imagePath == null || (item.imagePath is string && item.imagePath.size() >= 1 && item.imagePath.size() <= 300));
     }
 
-    // Pillar 5 Total Array Guarding: strictly bounds list length (1..10) and validates
-    // first, second (when present), and last items — staying well within Firestore's
-    // 1,000-expression and 10-regex-call limits for all valid multi-item submissions.
-    function areQuoteItemsValid(items) {
+    // Pillar 5 Total Array Guarding: bounds list length (1..10) and validates
+    // first, second (when present), and last snapshots — staying well within
+    // Firestore's 1,000-expression and 10-regex-call limits (7 total regex calls max).
+    function areQuotationProductsValid(items) {
       return items is list
         && items.size() >= 1
         && items.size() <= 10
-        && isValidQuoteItem(items[0])
-        && items[0].productSlug.matches('^[a-z0-9\\-]+$')
+        && isValidQuotationProductSnapshot(items[0])
+        && items[0].productId.matches('^[a-z0-9\\-]+$')
         && items[0].productCode.matches('^[A-Z0-9\\s\\-]+$')
-        && (items.size() <= 1 || isValidQuoteItem(items[1]))
-        && (items.size() <= 2 || isValidQuoteItem(items[items.size() - 1]));
+        && (items[0].imagePath == null || items[0].imagePath.matches('^/assets/catalogue/[a-z0-9/_.\\-]+$'))
+        && (items.size() <= 1 || isValidQuotationProductSnapshot(items[1]))
+        && (items.size() <= 2 || isValidQuotationProductSnapshot(items[items.size() - 1]));
     }
 
-    function isValidQuoteRequest(data) {
+    // Exact 20-key allowlist: data.size() == 20 combined with explicit validation
+    // of all 20 distinct keys rejects any missing or extra shadow fields (such as
+    // internalNotes or admin flags) while staying well below Firestore's 1,000-expression limit.
+    function isValidQuotationRequest(data, quotationRequestId) {
       return data is map
-        && data.keys().hasAll([
-          'referenceId',
-          'status',
-          'source',
-          'organisationName',
-          'contactPerson',
-          'phone',
-          'email',
-          'deliveryLocation',
-          'additionalRequirements',
-          'items',
-          'itemCount',
-          'totalQuantity',
-          'createdAt',
-          'updatedAt'
-        ])
-        && data.keys().hasOnly([
-          'referenceId',
-          'status',
-          'source',
-          'organisationName',
-          'contactPerson',
-          'phone',
-          'email',
-          'deliveryLocation',
-          'additionalRequirements',
-          'items',
-          'itemCount',
-          'totalQuantity',
-          'createdAt',
-          'updatedAt'
-        ])
-        && data.referenceId is string
-        && data.referenceId.size() >= 12
-        && data.referenceId.size() <= 32
-        && data.referenceId.matches('^PF-RFQ-[0-9]{4}-[A-Z0-9]{4,8}$')
-        && data.status is string
-        && data.status.size() == 3
-        && data.status == 'new'
-        && data.source is string
-        && data.source.size() == 13
+        && data.size() == 20
+        && data.id == quotationRequestId
+        && data.referenceNumber is string
+        && data.referenceNumber.size() >= 12
+        && data.referenceNumber.size() <= 32
+        && data.referenceNumber.matches('^PF-RFQ-[0-9]{4}-[A-Z0-9]{4,8}$')
+        && (
+          (!isSignedIn() && data.userId == null)
+          || (isSignedIn() && data.userId == request.auth.uid)
+        )
         && data.source == 'web_catalogue'
-        && data.organisationName is string
-        && data.organisationName.size() >= 1
-        && data.organisationName.size() <= 160
-        && data.contactPerson is string
-        && data.contactPerson.size() >= 1
-        && data.contactPerson.size() <= 120
-        && data.phone is string
-        && data.phone.size() >= 7
-        && data.phone.size() <= 32
-        && data.phone.matches('^[+0-9()\\s.\\-]{7,32}$')
-        && data.email is string
-        && data.email.size() >= 5
-        && data.email.size() <= 254
-        && data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
-        && data.deliveryLocation is string
-        && data.deliveryLocation.size() >= 2
-        && data.deliveryLocation.size() <= 200
-        && data.additionalRequirements is string
-        && data.additionalRequirements.size() <= 2000
-        && areQuoteItemsValid(data.items)
-        && data.itemCount is int
-        && data.itemCount == data.items.size()
-        && data.totalQuantity is int
-        && data.totalQuantity >= data.items.size()
-        && data.totalQuantity <= 100000
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120
+        && data.organizationName is string && data.organizationName.size() >= 1 && data.organizationName.size() <= 160
+        && data.email is string && data.email.size() >= 5 && data.email.size() <= 254 && data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')
+        && data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 32 && data.phone.matches('^[+0-9()\\s.\\-]{7,32}$')
+        && areQuotationProductsValid(data.requestedProducts)
+        && data.itemCount == data.requestedProducts.size()
+        && data.totalQuantity is int && data.totalQuantity >= data.requestedProducts.size() && data.totalQuantity <= 100000
+        && data.deliveryLocation is string && data.deliveryLocation.size() >= 2 && data.deliveryLocation.size() <= 200
+        && data.additionalRequirements is string && data.additionalRequirements.size() <= 2000
+        && data.status == 'submitted'
+        && data.revisionNumber == 1
+        && data.parentQuotationRequestId == null
+        && data.activeQuotationVersionId == null
+        && data.convertedOrderId == null
         && data.createdAt == request.time
         && data.updatedAt == request.time;
     }
 
-    // Create-only for public visitors with strict schema, size, regex, status='new', and server timestamp checks.
-    // Zero public/client read, list, update, or delete access to protect customer PII until future Admin RBAC.
-    match /quoteRequests/{quoteId} {
-      allow create: if isValidId(quoteId) && isValidQuoteRequest(incoming());
-      allow get, list, update, delete: if false;
+    match /quotationRequests/{quotationRequestId} {
+      allow create: if isValidId(quotationRequestId)
+        && isValidQuotationRequest(incoming(), quotationRequestId);
+      allow get: if isValidId(quotationRequestId)
+        && isSignedIn()
+        && existing().userId == request.auth.uid;
+      allow list: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+
+      // Physically isolated internal staff review notes: strictly default-deny for all client SDK calls.
+      match /internalNotes/{noteId} {
+        allow read, write: if false;
+      }
     }
   }
 }
