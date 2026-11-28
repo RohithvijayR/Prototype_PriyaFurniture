@@ -9,7 +9,6 @@ import {
   getProductBySlug,
 } from '../data/catalogue';
 import { useAuth } from '../contexts/AuthContext';
-import { CatalogueProduct } from '../types/catalogue';
 import { EDITORIAL_EASE } from '../components/MotionPrimitives';
 import { isFirebaseConfigured } from '../lib/firebase/config';
 import { QuoteServiceError } from '../lib/firebase/errors';
@@ -24,6 +23,11 @@ import {
   QuoteItemDraftInput,
   QuoteSubmissionMeta,
 } from '../types/quote';
+import {
+  CUSTOM_PRODUCT_KEY,
+  createInitialQuoteItem,
+  extractExplicitDimensions,
+} from '../utils/quotePrefill';
 
 type QuoteItemDraft = QuoteItemDraftInput;
 type QuoteFormState = QuoteFormDraftInput;
@@ -46,50 +50,17 @@ interface SubmittedQuote {
   data: QuoteFormState;
 }
 
-const CUSTOM_PRODUCT_KEY = 'custom';
-
-function extractExplicitDimensions(product: CatalogueProduct | undefined): string {
-  if (!product?.specifications) return '';
-  const dimEntries = product.specifications.filter((spec) =>
-    /height|length|width|depth|dimension/i.test(spec.label)
+function buildInitialItemFromSearchParams(searchParams: URLSearchParams): QuoteItemDraft {
+  return createInitialQuoteItem(
+    {
+      product: searchParams.get('product'),
+      category: searchParams.get('category'),
+      qty: searchParams.get('qty'),
+      finish: searchParams.get('finish'),
+    },
+    PRODUCTS,
+    CATEGORIES
   );
-  if (dimEntries.length === 0) return '';
-  return dimEntries.map((entry) => `${entry.label}: ${entry.value}`).join(' · ');
-}
-
-function createInitialItem(
-  slugParam: string | null,
-  qtyParam: string | null,
-  finishParam: string | null
-): QuoteItemDraft {
-  if (slugParam === CUSTOM_PRODUCT_KEY) {
-    return {
-      id: 'item-1',
-      productSlug: CUSTOM_PRODUCT_KEY,
-      quantity: qtyParam && parseInt(qtyParam, 10) > 0 ? qtyParam : '1',
-      dimensions: '',
-      materialFinish: finishParam ?? '',
-    };
-  }
-
-  const matched = slugParam ? getProductBySlug(slugParam) : undefined;
-  if (matched) {
-    return {
-      id: 'item-1',
-      productSlug: matched.slug,
-      quantity: qtyParam && parseInt(qtyParam, 10) > 0 ? qtyParam : '1',
-      dimensions: extractExplicitDimensions(matched),
-      materialFinish: finishParam ?? '',
-    };
-  }
-
-  return {
-    id: 'item-1',
-    productSlug: '',
-    quantity: '1',
-    dimensions: '',
-    materialFinish: '',
-  };
 }
 
 function getProductDisplayName(slug: string): string {
@@ -112,13 +83,7 @@ export function QuoteRequestPage() {
     email: '',
     deliveryLocation: '',
     additionalRequirements: '',
-    items: [
-      createInitialItem(
-        searchParams.get('product'),
-        searchParams.get('qty'),
-        searchParams.get('finish')
-      ),
-    ],
+    items: [buildInitialItemFromSearchParams(searchParams)],
   }));
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -130,7 +95,23 @@ export function QuoteRequestPage() {
   const isSubmittingRef = useRef(false);
   const submissionMetaRef = useRef<QuoteSubmissionMeta>(createQuoteSubmissionMeta());
   const prefilledForUidRef = useRef<string | null>(null);
+  const lastAppliedSearchRef = useRef<string>(searchParams.toString());
+  const hasUserModifiedItemsRef = useRef<boolean>(false);
   const firebaseAvailable = isFirebaseConfigured();
+
+  // Apply updated URL query parameters only when navigating to a new query string
+  // before the user has manually modified any item row.
+  useEffect(() => {
+    const currentSearch = searchParams.toString();
+    if (currentSearch === lastAppliedSearchRef.current) return;
+    lastAppliedSearchRef.current = currentSearch;
+    if (hasUserModifiedItemsRef.current) return;
+
+    setForm((prev) => ({
+      ...prev,
+      items: [buildInitialItemFromSearchParams(searchParams)],
+    }));
+  }, [searchParams]);
 
   // Gently prefill blank contact fields from the signed-in customer profile without overwriting user input.
   useEffect(() => {
@@ -169,6 +150,7 @@ export function QuoteRequestPage() {
   };
 
   const updateItem = (itemId: string, patch: Partial<QuoteItemDraft>) => {
+    hasUserModifiedItemsRef.current = true;
     if (submitError) setSubmitError(null);
     setForm((prev) => ({
       ...prev,
@@ -201,6 +183,7 @@ export function QuoteRequestPage() {
   };
 
   const addItem = () => {
+    hasUserModifiedItemsRef.current = true;
     setForm((prev) => {
       if (prev.items.length >= QUOTE_LIMITS.MAX_ITEMS) return prev;
       return {
@@ -220,6 +203,7 @@ export function QuoteRequestPage() {
   };
 
   const removeItem = (itemId: string) => {
+    hasUserModifiedItemsRef.current = true;
     setForm((prev) => {
       if (prev.items.length <= 1) return prev;
       return {
@@ -364,7 +348,7 @@ export function QuoteRequestPage() {
       email: profile?.email || user?.email || '',
       deliveryLocation: defaultLocation,
       additionalRequirements: '',
-      items: [createInitialItem(null, null, null)],
+      items: [createInitialQuoteItem({}, PRODUCTS, CATEGORIES)],
     });
   };
 
